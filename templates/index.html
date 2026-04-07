@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Environment Monitoring System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="page-header">
+            <h1>Smart Environment Monitoring System</h1>
+            <p class="subtitle">
+                Real-time monitoring dashboard for temperature, humidity, and pressure
+            </p>
+        </header>
+
+        <section class="status-bar card">
+            <div class="status-item">
+                <span class="status-label">System Status</span>
+                <span id="systemStatus" class="status-value">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Sensor Source</span>
+                <span id="sensorSource" class="status-value">--</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Warning Count</span>
+                <span id="warningCount" class="status-value">0</span>
+            </div>
+        </section>
+
+        <section id="warningBanner" class="warning-banner normal">
+            All environmental readings are within the safe threshold range.
+        </section>
+
+        <section class="dashboard-grid">
+            <div class="card reading-card">
+                <h2>Temperature</h2>
+                <p class="reading-value"><span id="temperature">--</span> °C</p>
+                <p class="reading-meta">Last updated: <span id="timestamp">--</span></p>
+            </div>
+
+            <div class="card reading-card">
+                <h2>Humidity</h2>
+                <p class="reading-value"><span id="humidity">--</span> %</p>
+                <p class="reading-meta">Current relative humidity</p>
+            </div>
+
+            <div class="card reading-card">
+                <h2>Pressure</h2>
+                <p class="reading-value"><span id="pressure">--</span> hPa</p>
+                <p class="reading-meta">Current atmospheric pressure</p>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Warnings</h2>
+            <ul id="warnings" class="warning-list">
+                <li>No warnings.</li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Temperature Analysis</h2>
+            <div class="analysis-grid">
+                <div class="analysis-box">
+                    <h3>Spike / Drop Detection</h3>
+                    <p id="spike_drop">No analysis available.</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Trend Detection</h3>
+                    <p id="trend">No analysis available.</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Threshold Prediction</h3>
+                    <p id="prediction">No analysis available.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Historical Temperature Chart</h2>
+            <canvas id="tempChart"></canvas>
+        </section>
+
+        <section class="form-grid">
+            <div class="card">
+                <h2>Warning Threshold Settings</h2>
+                <form id="settingsForm" class="settings-form">
+                    <div class="form-group">
+                        <h3>Temperature Thresholds</h3>
+                        <label for="temp_min">Minimum Temperature (°C)</label>
+                        <input type="number" step="0.1" id="temp_min" name="temp_min" required>
+
+                        <label for="temp_max">Maximum Temperature (°C)</label>
+                        <input type="number" step="0.1" id="temp_max" name="temp_max" required>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Humidity Thresholds</h3>
+                        <label for="humidity_min">Minimum Humidity (%)</label>
+                        <input type="number" step="0.1" id="humidity_min" name="humidity_min" required>
+
+                        <label for="humidity_max">Maximum Humidity (%)</label>
+                        <input type="number" step="0.1" id="humidity_max" name="humidity_max" required>
+                    </div>
+
+                    <div class="form-group">
+                        <h3>Pressure Thresholds</h3>
+                        <label for="pressure_min">Minimum Pressure (hPa)</label>
+                        <input type="number" step="0.1" id="pressure_min" name="pressure_min" required>
+
+                        <label for="pressure_max">Maximum Pressure (hPa)</label>
+                        <input type="number" step="0.1" id="pressure_max" name="pressure_max" required>
+                    </div>
+
+                    <button type="submit">Save Settings</button>
+                </form>
+                <p id="settingsMessage" class="form-message"></p>
+            </div>
+
+            <div class="card">
+                <h2>Manual Sensor Input (Simulation)</h2>
+                <p class="card-note">
+                    Use this panel to simulate abnormal or test readings for demonstration purposes.
+                </p>
+                <form id="simulateForm" class="settings-form">
+                    <div class="form-group">
+                        <label for="sim_temperature">Temperature (°C)</label>
+                        <input type="number" step="0.1" id="sim_temperature" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="sim_humidity">Humidity (%)</label>
+                        <input type="number" step="0.1" id="sim_humidity" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="sim_pressure">Pressure (hPa)</label>
+                        <input type="number" step="0.1" id="sim_pressure" required>
+                    </div>
+
+                    <button type="submit">Submit Sensor Data</button>
+                </form>
+                <p id="simulateMessage" class="form-message"></p>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
