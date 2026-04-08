@@ -1,20 +1,10 @@
-"""
-sensor_reader.py
-
-Read environmental data from the official Sense HAT emulator (sense_emu).
-
-This module is responsible for:
-- reading temperature, humidity, and pressure
-- validating readings
-- storing readings in the database
-- running continuous background collection
-"""
-
+import logging
 import time
-from typing import Optional, Dict
-
+from typing import Any, Dict, Optional
 from database.database import insert_sensor_data
-
+# logger
+logger = logging.getLogger("smart_env_monitor.sensor")
+# try load emulator
 try:
     from sense_emu import SenseHat
     EMULATOR_AVAILABLE = True
@@ -22,26 +12,52 @@ except ImportError:
     SenseHat = None
     EMULATOR_AVAILABLE = False
 
+# reuse emulator instance
+_sense_instance: Optional[Any] = None
 
+
+
+# check emulator available
 def is_sense_hat_available() -> bool:
-    """
-    Check whether the official Sense HAT emulator library is available.
-    """
+    """check emulator installed"""
     return EMULATOR_AVAILABLE
 
+# get sensor source name
+def get_sensor_source_name(use_simulation_fallback: bool = False) -> str:
+    """return current sensor source"""
+    if EMULATOR_AVAILABLE:
+        return "Sense HAT Emulator"
+    return "No Sensor Source Available"
 
-def validate_sensor_values(temperature: float, humidity: float, pressure: float) -> bool:
-    """
-    Validate raw sensor readings to filter out obviously invalid values.
+# get or create emulator instance
+def get_sense_instance() -> Optional[Any]:
+    """get emulator instance"""
+    global _sense_instance
 
-    Args:
-        temperature: Temperature in degrees Celsius.
-        humidity: Relative humidity percentage.
-        pressure: Pressure in hPa / millibars.
+    if not EMULATOR_AVAILABLE:
+        return None
 
-    Returns:
-        bool: True if values are reasonable, False otherwise.
-    """
+    if _sense_instance is not None:
+        return _sense_instance
+
+    try:
+        _sense_instance = SenseHat()
+        logger.info("Sense HAT emulator initialized successfully.")
+        return _sense_instance
+    except Exception as exc:
+        logger.exception("Failed to initialize Sense HAT emulator: %s", exc)
+        _sense_instance = None
+        return None
+
+
+
+# basic sanity check for values
+def validate_sensor_values(
+    temperature: float,
+    humidity: float,
+    pressure: float
+) -> bool:
+    """check if values look reasonable"""
     try:
         temperature = float(temperature)
         humidity = float(humidity)
@@ -58,116 +74,124 @@ def validate_sensor_values(temperature: float, humidity: float, pressure: float)
 
     return True
 
+# round values
+def normalize_sensor_values(
+    temperature: float,
+    humidity: float,
+    pressure: float
+) -> Dict[str, float]:
+    """round values to 2 dp"""
+    return {
+        "temperature": round(float(temperature), 2),
+        "humidity": round(float(humidity), 2),
+        "pressure": round(float(pressure), 2),
+    }
 
+
+
+# read from emulator
 def read_from_emulator() -> Optional[Dict[str, float]]:
-    """
-    Read temperature, humidity, and pressure from the official Sense HAT emulator.
-
-    Returns:
-        dict | None: Sensor values if successful, otherwise None.
-    """
+    """read sensor data"""
     if not EMULATOR_AVAILABLE:
+        logger.warning("Sensor read skipped: sense_emu is not installed.")
+        return None
+
+    sense = get_sense_instance()
+    if sense is None:
+        logger.warning("Sensor read skipped: emulator instance unavailable.")
         return None
 
     try:
-        sense = SenseHat()
+        raw_temperature = sense.get_temperature()
+        raw_humidity = sense.get_humidity()
+        raw_pressure = sense.get_pressure()
 
-        temperature = round(float(sense.get_temperature()), 2)
-        humidity = round(float(sense.get_humidity()), 2)
-        pressure = round(float(sense.get_pressure()), 2)
+        reading = normalize_sensor_values(
+            raw_temperature,
+            raw_humidity,
+            raw_pressure,
+        )
 
-        if not validate_sensor_values(temperature, humidity, pressure):
+        if not validate_sensor_values(
+            reading["temperature"],
+            reading["humidity"],
+            reading["pressure"],
+        ):
+            logger.warning(
+                "Invalid emulator reading rejected: T=%s, H=%s, P=%s",
+                reading["temperature"],
+                reading["humidity"],
+                reading["pressure"],
+            )
             return None
 
-        return {
-            "temperature": temperature,
-            "humidity": humidity,
-            "pressure": pressure
-        }
 
-    except Exception as e:
-        print(f"[EMULATOR READ ERROR] {e}")
+        return reading
+
+    except Exception as exc:
+        logger.exception("Emulator read failed: %s", exc)
         return None
 
 
+
+# main read entry
 def read_sensor_data(use_simulation_fallback: bool = False) -> Optional[Dict[str, float]]:
-    """
-    Read sensor data from the official emulator.
-
-    Args:
-        use_simulation_fallback: Ignored in emulator-only mode.
-
-    Returns:
-        dict | None: Sensor reading dictionary or None if unavailable.
-    """
+    """get one reading"""
     return read_from_emulator()
-
-
+# read and save once
 def collect_and_store_reading(use_simulation_fallback: bool = False) -> bool:
-    """
-    Read one emulator sample and store it in the database.
-
-    Args:
-        use_simulation_fallback: Ignored in emulator-only mode.
-
-    Returns:
-        bool: True if a valid reading was stored, False otherwise.
-    """
+    """read and store data"""
     reading = read_sensor_data(use_simulation_fallback=use_simulation_fallback)
 
     if not reading:
-        print("[SENSOR COLLECTION ERROR] No emulator reading available.")
+        logger.warning("Sensor collection failed: no valid emulator reading available.")
         return False
 
     success = insert_sensor_data(
         reading["temperature"],
         reading["humidity"],
-        reading["pressure"]
+        reading["pressure"],
     )
 
     if not success:
-        print("[SENSOR STORAGE ERROR] Failed to store sensor reading.")
+        logger.error("Sensor storage failed: database insert was unsuccessful.")
         return False
 
-    print(
-        f"[EMU SENSOR] T={reading['temperature']:.2f}°C, "
-        f"H={reading['humidity']:.2f}%, "
-        f"P={reading['pressure']:.2f} hPa"
+    logger.info(
+        "Emulator reading stored successfully: T=%.2f°C, H=%.2f%%, P=%.2f hPa",
+        reading["temperature"],
+        reading["humidity"],
+        reading["pressure"],
     )
     return True
 
-
+# background loop
 def start_background_collection(
     interval_seconds: int = 5,
     use_simulation_fallback: bool = False,
     max_iterations: Optional[int] = None
 ) -> None:
-    """
-    Start a continuous loop that periodically reads emulator data and stores it.
-
-    This function is suitable for running in a background thread.
-    """
-    print("[SENSOR READER] Emulator background collection started.")
-
+    """run loop to collect data"""
+    safe_interval = max(1, int(interval_seconds))
+    logger.info(
+        "Background collection started. interval=%ss max_iterations=%s",
+        safe_interval,
+        max_iterations,
+    )
     iteration = 0
     while True:
         try:
-            collect_and_store_reading(use_simulation_fallback=use_simulation_fallback)
-        except Exception as e:
-            print(f"[BACKGROUND COLLECTION ERROR] {e}")
+            success = collect_and_store_reading(
+                use_simulation_fallback=use_simulation_fallback
+            )
+            if not success:
+                logger.warning("Background collection cycle completed with failure.")
+        except Exception as exc:
+            logger.exception("Background collection error: %s", exc)
 
         iteration += 1
         if max_iterations is not None and iteration >= max_iterations:
-            print("[SENSOR READER] Background collection stopped after test iterations.")
+            logger.info("Background collection stopped after %s iterations.", iteration)
             break
 
-        time.sleep(interval_seconds)
-
-
-def get_sensor_source_name(use_simulation_fallback: bool = False) -> str:
-    """
-    Return the current sensor source description.
-    """
-    if EMULATOR_AVAILABLE:
-        return "Sense HAT Emulator"
-    return "No Sensor Source Available"
+        time.sleep(safe_interval)

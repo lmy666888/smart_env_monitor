@@ -1,9 +1,19 @@
 let chart = null;
 let isSettingsFormDirty = false;
+let lastSuccessfulPayload = null;
 
-/**
- * Fetch monitoring data from the backend and update the dashboard.
- */
+function formatDisplayTime(value) {
+    if (!value) return "--";
+    return String(value);
+}
+
+function setButtonLoading(buttonId, isLoading, loadingText, defaultText) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? loadingText : defaultText;
+}
 async function fetchData() {
     try {
         const response = await fetch("/api/data");
@@ -13,29 +23,35 @@ async function fetchData() {
             throw new Error(data.message || "Failed to fetch monitoring data.");
         }
 
+        lastSuccessfulPayload = data;
+
         updateSystemStatus("Online");
+        updateLastUpdateTime(new Date().toLocaleString());
         updateSensorSource(data.sensor_source || "--");
         updateRealtimeReadings(data.latest);
         updateWarnings(data.warnings || [], data.warning_status, data.warning_banner);
         updateAnalysis(data.analysis);
         updateSettingsForm(data.settings);
-        updateChart(data.chart_labels || [], data.chart_values || []);
+        updateChart(data.chart_labels || [], data.chart_values || [], data.settings);
+        updateRuntime(data.runtime || {});
     } catch (error) {
         console.error("Fetch error:", error);
+
         updateSystemStatus("Offline / Error");
         showWarningBanner("error", "Failed to load monitoring data from the server.");
-        renderWarnings(["Unable to retrieve warning data."]);
-        updateAnalysis({
-            spike_drop: "Analysis unavailable.",
-            trend: "Analysis unavailable.",
-            prediction: "Analysis unavailable."
-        });
+
+        if (!lastSuccessfulPayload) {
+            renderWarnings(["Unable to retrieve warning data."]);
+            updateAnalysis({
+                spike_drop: "Analysis unavailable.",
+                trend: "Analysis unavailable.",
+                prediction: "Analysis unavailable."
+            });
+            updateRuntime({});
+        }
     }
 }
 
-/**
- * Update the system status text.
- */
 function updateSystemStatus(statusText) {
     const statusEl = document.getElementById("systemStatus");
     if (statusEl) {
@@ -43,54 +59,57 @@ function updateSystemStatus(statusText) {
     }
 }
 
-/**
- * Update the sensor source display.
- */
+function updateLastUpdateTime(value) {
+    const el = document.getElementById("lastUpdateTime");
+    if (el) {
+        el.textContent = value || "--";
+    }
+}
 function updateSensorSource(sourceText) {
     const sourceEl = document.getElementById("sensorSource");
     if (sourceEl) {
         sourceEl.textContent = sourceText;
     }
 }
-
-/**
- * Update real-time reading cards.
- */
 function updateRealtimeReadings(latest) {
+    const temperatureEl = document.getElementById("temperature");
+    const humidityEl = document.getElementById("humidity");
+    const pressureEl = document.getElementById("pressure");
+    const timestampEl = document.getElementById("timestamp");
+
+    if (!temperatureEl || !humidityEl || !pressureEl || !timestampEl) return;
+
     if (!latest) {
-        document.getElementById("temperature").textContent = "--";
-        document.getElementById("humidity").textContent = "--";
-        document.getElementById("pressure").textContent = "--";
-        document.getElementById("timestamp").textContent = "--";
+        temperatureEl.textContent = "--";
+        humidityEl.textContent = "--";
+        pressureEl.textContent = "--";
+        timestampEl.textContent = "--";
         return;
     }
 
-    document.getElementById("temperature").textContent = Number(latest.temperature).toFixed(2);
-    document.getElementById("humidity").textContent = Number(latest.humidity).toFixed(2);
-    document.getElementById("pressure").textContent = Number(latest.pressure).toFixed(2);
-    document.getElementById("timestamp").textContent = latest.timestamp || "--";
+
+    temperatureEl.textContent = Number(latest.temperature).toFixed(2);
+    humidityEl.textContent = Number(latest.humidity).toFixed(2);
+    pressureEl.textContent = Number(latest.pressure).toFixed(2);
+    timestampEl.textContent = latest.timestamp || "--";
 }
 
-/**
- * Update warning count, banner, and warning list.
- */
 function updateWarnings(warnings, warningStatus, warningBanner) {
     const countEl = document.getElementById("warningCount");
     if (countEl) {
         countEl.textContent = warningStatus?.count ?? warnings.length ?? 0;
     }
 
+
     const level = warningStatus?.level || (warnings.length > 0 ? "warning" : "normal");
     showWarningBanner(level, warningBanner || "No warning information available.");
     renderWarnings(warnings);
 }
 
-/**
- * Render warning banner with style level.
- */
 function showWarningBanner(level, text) {
     const banner = document.getElementById("warningBanner");
     if (!banner) return;
+
 
     banner.textContent = text || "No warning information available.";
     banner.classList.remove("normal", "warning", "error");
@@ -104,9 +123,6 @@ function showWarningBanner(level, text) {
     }
 }
 
-/**
- * Render warning list items.
- */
 function renderWarnings(warnings) {
     const warningsList = document.getElementById("warnings");
     if (!warningsList) return;
@@ -117,7 +133,6 @@ function renderWarnings(warnings) {
         warningsList.innerHTML = "<li>No warnings.</li>";
         return;
     }
-
     warnings.forEach(item => {
         const li = document.createElement("li");
         li.textContent = item;
@@ -125,23 +140,37 @@ function renderWarnings(warnings) {
     });
 }
 
-/**
- * Update analysis section.
- */
 function updateAnalysis(analysis) {
-    document.getElementById("spike_drop").textContent =
-        analysis?.spike_drop || "No analysis available.";
-
-    document.getElementById("trend").textContent =
-        analysis?.trend || "No analysis available.";
-
-    document.getElementById("prediction").textContent =
-        analysis?.prediction || "No analysis available.";
+    const spikeEl = document.getElementById("spike_drop");
+    const trendEl = document.getElementById("trend");
+    const predictionEl = document.getElementById("prediction");
+    if (spikeEl) spikeEl.textContent = analysis?.spike_drop || "No analysis available.";
+    if (trendEl) trendEl.textContent = analysis?.trend || "No analysis available.";
+    if (predictionEl) predictionEl.textContent = analysis?.prediction || "No analysis available.";
 }
 
-/**
- * Update settings form values, unless the user is actively editing.
- */
+function updateRuntime(runtime) {
+    const collectorStatus = document.getElementById("collectorStatus");
+    const lastCollectionTime = document.getElementById("lastCollectionTime");
+    const lastDisplayUpdate = document.getElementById("lastDisplayUpdate");
+    const failureCount = document.getElementById("failureCount");
+    if (collectorStatus) {
+        collectorStatus.textContent = runtime.collector_thread_alive ? "Running" : "Stopped";
+    }
+
+    if (lastCollectionTime) {
+        lastCollectionTime.textContent = formatDisplayTime(runtime.last_collection_success_at);
+    }
+
+    if (lastDisplayUpdate) {
+        lastDisplayUpdate.textContent = formatDisplayTime(runtime.last_display_update_at);
+    }
+
+    if (failureCount) {
+        failureCount.textContent = runtime.consecutive_collection_failures ?? 0;
+    }
+}
+
 function updateSettingsForm(settings) {
     if (!settings || isSettingsFormDirty) return;
 
@@ -152,25 +181,37 @@ function updateSettingsForm(settings) {
     document.getElementById("pressure_min").value = settings.pressure_min ?? "";
     document.getElementById("pressure_max").value = settings.pressure_max ?? "";
 }
-
-/**
- * Initialize the temperature chart once.
- */
 function initChart() {
     const canvas = document.getElementById("tempChart");
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
+
 
     chart = new Chart(ctx, {
         type: "line",
         data: {
             labels: [],
-            datasets: [{
-                label: "Temperature (°C)",
-                data: [],
-                tension: 0.25
-            }]
+            datasets: [
+                {
+                    label: "Temperature (°C)",
+                    data: [],
+                    tension: 0.25
+                },
+                {
+                    label: "Min Threshold",
+                    data: [],
+                    borderDash: [6, 6],
+                    pointRadius: 0,
+                    tension: 0
+                },
+                {
+                    label: "Max Threshold",
+                    data: [],
+                    borderDash: [6, 6],
+                    pointRadius: 0,
+                    tension: 0
+                }
+            ]
         },
         options: {
             responsive: true,
@@ -199,24 +240,22 @@ function initChart() {
     });
 }
 
-/**
- * Update chart data without destroying and recreating the chart.
- */
-function updateChart(labels, values) {
+function updateChart(labels, values, settings) {
     if (!chart) {
         initChart();
     }
-
     if (!chart) return;
-
     chart.data.labels = labels;
     chart.data.datasets[0].data = values;
+
+    const minLine = labels.map(() => settings?.temp_min ?? null);
+    const maxLine = labels.map(() => settings?.temp_max ?? null);
+    chart.data.datasets[1].data = minLine;
+    chart.data.datasets[2].data = maxLine;
+
     chart.update();
 }
 
-/**
- * Show user-facing feedback message for form actions.
- */
 function showFormMessage(elementId, message, isSuccess = true) {
     const el = document.getElementById(elementId);
     if (!el) return;
@@ -225,10 +264,24 @@ function showFormMessage(elementId, message, isSuccess = true) {
     el.classList.remove("success", "error");
     el.classList.add(isSuccess ? "success" : "error");
 }
+function validateSettingsPayload(payload) {
+    const tempMin = Number(payload.temp_min);
+    const tempMax = Number(payload.temp_max);
+    const humMin = Number(payload.humidity_min);
+    const humMax = Number(payload.humidity_max);
+    const pressureMin = Number(payload.pressure_min);
+    const pressureMax = Number(payload.pressure_max);
 
-/**
- * Submit settings form to backend.
- */
+    if (tempMin >= tempMax) {
+        throw new Error("Temperature minimum must be less than maximum.");
+    }
+    if (humMin >= humMax) {
+        throw new Error("Humidity minimum must be less than maximum.");
+    }
+    if (pressureMin >= pressureMax) {
+        throw new Error("Pressure minimum must be less than maximum.");
+    }
+}
 async function handleSettingsSubmit(event) {
     event.preventDefault();
 
@@ -240,8 +293,10 @@ async function handleSettingsSubmit(event) {
         pressure_min: document.getElementById("pressure_min").value,
         pressure_max: document.getElementById("pressure_max").value
     };
-
     try {
+        validateSettingsPayload(payload);
+        setButtonLoading("settingsSubmitBtn", true, "Saving...", "Save Settings");
+
         const response = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -250,22 +305,22 @@ async function handleSettingsSubmit(event) {
 
         const result = await response.json();
 
+
+
         if (!response.ok || !result.success) {
             throw new Error(result.message || "Failed to update settings.");
         }
 
-        showFormMessage("settingsMessage", result.message, true);
+        showFormMessage("settingsMessage", result.message || "Settings updated successfully.", true);
         isSettingsFormDirty = false;
         await fetchData();
     } catch (error) {
         console.error("Settings update error:", error);
         showFormMessage("settingsMessage", error.message, false);
+    } finally {
+        setButtonLoading("settingsSubmitBtn", false, "Saving...", "Save Settings");
     }
 }
-
-/**
- * Submit manual simulated sensor data.
- */
 async function handleSimulateSubmit(event) {
     event.preventDefault();
 
@@ -274,8 +329,9 @@ async function handleSimulateSubmit(event) {
         humidity: document.getElementById("sim_humidity").value,
         pressure: document.getElementById("sim_pressure").value
     };
-
     try {
+        setButtonLoading("simulateSubmitBtn", true, "Submitting...", "Submit Sensor Data");
+
         const response = await fetch("/api/simulate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -288,19 +344,19 @@ async function handleSimulateSubmit(event) {
             throw new Error(result.message || "Failed to submit sensor data.");
         }
 
-        showFormMessage("simulateMessage", result.message, true);
 
+        showFormMessage("simulateMessage", result.message || "Sensor data submitted successfully.", true);
         document.getElementById("simulateForm").reset();
         await fetchData();
     } catch (error) {
         console.error("Simulation submit error:", error);
         showFormMessage("simulateMessage", error.message, false);
+    } finally {
+        setButtonLoading("simulateSubmitBtn", false, "Submitting...", "Submit Sensor Data");
     }
 }
 
-/**
- * Mark settings form as dirty while user is editing.
- */
+
 function trackSettingsFormChanges() {
     const settingsInputs = document.querySelectorAll("#settingsForm input");
     settingsInputs.forEach(input => {
@@ -310,9 +366,8 @@ function trackSettingsFormChanges() {
     });
 }
 
-/**
- * Register event listeners.
- */
+
+
 function registerEventListeners() {
     const settingsForm = document.getElementById("settingsForm");
     const simulateForm = document.getElementById("simulateForm");
@@ -324,18 +379,13 @@ function registerEventListeners() {
     if (simulateForm) {
         simulateForm.addEventListener("submit", handleSimulateSubmit);
     }
-
     trackSettingsFormChanges();
 }
 
-/**
- * Initialize the dashboard.
- */
 function initDashboard() {
     initChart();
     registerEventListeners();
     fetchData();
-    setInterval(fetchData, 3000);
+    setInterval(fetchData, window.APP_CONFIG?.dataRefreshMs || 3000);
 }
-
 document.addEventListener("DOMContentLoaded", initDashboard);

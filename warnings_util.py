@@ -1,137 +1,115 @@
-"""
-warnings_util.py
+from typing import List, Dict, Any
+# generate warnings based on values
 
-Utility functions for generating warnings and display-related status.
-"""
-
-from typing import Any, List, Tuple
-
-
-def _safe_get(data: Any, key: str, default=None):
-    """
-    Safely extract value from dict-like or sqlite Row.
-    """
-    try:
-        return data[key]
-    except Exception:
-        return default
-
-
-# -----------------------------
-# 1. 基础 warnings
-# -----------------------------
-def generate_warnings(data: Any, settings: Any) -> List[str]:
-    """
-    Generate warning messages based on sensor data and thresholds.
-    """
-    warnings = []
-
-    if data is None or settings is None:
+def generate_warnings(latest: Any, settings: Any) -> List[str]:
+    """check warnings"""
+    if not latest or not settings:
         return ["No data available."]
 
+    warnings = []
     try:
-        temperature = float(_safe_get(data, "temperature"))
-        humidity = float(_safe_get(data, "humidity"))
-        pressure = float(_safe_get(data, "pressure"))
-
-        if temperature < settings["temp_min"] or temperature > settings["temp_max"]:
-            warnings.append(f"Temperature out of range ({temperature:.2f}°C)")
-
-        if humidity < settings["humidity_min"] or humidity > settings["humidity_max"]:
-            warnings.append(f"Humidity out of range ({humidity:.2f}%)")
-
-        if pressure < settings["pressure_min"] or pressure > settings["pressure_max"]:
-            warnings.append(f"Pressure out of range ({pressure:.2f} hPa)")
+        temperature = float(latest["temperature"])
+        humidity = float(latest["humidity"])
+        pressure = float(latest["pressure"])
+        temp_min = float(settings["temp_min"])
+        temp_max = float(settings["temp_max"])
+        humidity_min = float(settings["humidity_min"])
+        humidity_max = float(settings["humidity_max"])
+        pressure_min = float(settings["pressure_min"])
+        pressure_max = float(settings["pressure_max"])
 
     except Exception:
-        return ["Invalid sensor data."]
+        return ["Invalid sensor data or settings."]
+
+    # temperature
+    if temperature < temp_min:
+        warnings.append(f"Temperature too low ({temperature:.2f}°C)")
+    elif temperature > temp_max:
+        warnings.append(f"Temperature too high ({temperature:.2f}°C)")
+
+
+
+    # humidity
+    if humidity < humidity_min:
+        warnings.append(f"Humidity too low ({humidity:.2f}%)")
+    elif humidity > humidity_max:
+        warnings.append(f"Humidity too high ({humidity:.2f}%)")
+
+
+    # pressure
+    if pressure < pressure_min:
+        warnings.append(f"Pressure too low ({pressure:.2f} hPa)")
+    elif pressure > pressure_max:
+        (warnings.append(f"Pressure too high ({pressure:.2f} hPa)"))
 
     return warnings
+def get_warning_status(latest: Any, settings: Any) -> Dict[str, object]:
+    """build warning status"""
+    warnings = generate_warnings(latest, settings)
 
-
-# -----------------------------
-# 2. 状态颜色（Sense HAT / Emulator）
-# -----------------------------
-def get_status_color(data: Any, settings: Any) -> Tuple[int, int, int]:
-    """
-    Return RGB color representing system status:
-    - Green: normal
-    - Red: warning
-    - Yellow: system/data issue
-    """
-    if data is None or settings is None:
-        return (255, 255, 0)  # yellow
-
-    warnings = generate_warnings(data, settings)
-
-    if warnings and warnings != ["No data available."]:
-        return (255, 0, 0)  # red
-
-    return (0, 255, 0)  # green
-
-
-# -----------------------------
-# 3. 简短 warning 文本（LED滚动）
-# -----------------------------
-def get_short_warning_text(warnings: List[str]) -> str:
-    """
-    Convert warning list into a short display-friendly message.
-    """
-    if not warnings:
-        return "ALL OK"
-
-    if len(warnings) == 1:
-        return warnings[0][:30]
-
-    return f"{len(warnings)} WARNINGS"
-
-
-# -----------------------------
-# 4. 前端状态汇总（API）
-# -----------------------------
-def get_warning_status(data: Any, settings: Any) -> dict:
-    """
-    Return structured warning status for frontend.
-    """
-    if data is None or settings is None:
+    if warnings == ["No data available."] or warnings == ["Invalid sensor data or settings."]:
         return {
             "has_warning": True,
-            "count": 1,
-            "messages": ["No data available."],
+            "count": len(warnings),
+            "messages": warnings,
             "level": "error"
         }
 
-    warnings = generate_warnings(data, settings)
 
-    if not warnings:
-        return {
-            "has_warning": False,
-            "count": 0,
-            "messages": [],
-            "level": "normal"
-        }
 
     return {
-        "has_warning": True,
+        "has_warning": len(warnings) > 0,
         "count": len(warnings),
         "messages": warnings,
-        "level": "warning"
+        "level": "warning" if warnings else "normal"
     }
 
 
-# -----------------------------
-# 5. Banner 文本（网页顶部）
-# -----------------------------
-def warning_banner_text(data: Any, settings: Any) -> str:
-    """
-    Return a single-line summary for UI banner.
-    """
-    status = get_warning_status(data, settings)
+# get color for display
 
-    if status["level"] == "error":
-        return "SYSTEM ERROR: No data available."
+def get_status_color(latest: Any, settings: Any):
+    """get status color"""
+    warnings = generate_warnings(latest, settings)
 
-    if status["level"] == "normal":
-        return "All environmental readings are within normal ranges."
+    if warnings == ["No data available."] or warnings == ["Invalid sensor data or settings."]:
+        return (255, 255, 0)
 
-    return f"{status['count']} warning(s) detected."
+    if warnings:
+        return (255, 0, 0)
+
+    return (0, 255, 0)
+
+
+# convert warnings to short text
+def get_short_warning_text(warnings: List[str]) -> str:
+    """short warning text"""
+    if not warnings:
+        return "ALL OK"
+    mapping = []
+
+    for msg in warnings:
+        msg_lower = msg.lower()
+
+        if "temperature" in msg_lower:
+            mapping.append("TEMP")
+        elif "humidity" in msg_lower:
+            mapping.append("HUM")
+        elif "pressure" in msg_lower:
+            mapping.append("PRESS")
+        elif "data" in msg_lower:
+            mapping.append("ERROR")
+
+    return " | ".join(mapping) if mapping else "WARNING"
+
+
+# text for web banner
+def warning_banner_text(latest: Any, settings: Any) -> str:
+    """banner text"""
+    warnings = generate_warnings(latest, settings)
+    if not warnings:
+        return "All readings are within normal ranges."
+
+    if warnings[0] in ["No data available.", "Invalid sensor data or settings."]:
+        return "SYSTEM ERROR"
+
+    return " | ".join(warnings)

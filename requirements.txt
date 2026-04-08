@@ -1,3 +1,5 @@
 Flask==3.0.3
+Werkzeug==3.0.3
 python-dotenv==1.0.1
+sense-emu==1.2.1
 sense-hat==2.6.0

@@ -1,10 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
-<body>
+@app.route("/")
+def dashboard():
+    """
+    Main dashboard page.
 
-</body>
-</html>
+    Responsibilities:
+    - ensure the user is authenticated
+    - render the dashboard template
+    - pass only lightweight template variables
+
+    Real-time monitoring data is loaded by frontend JavaScript
+    from /api/data after the page is rendered.
+    """
+    if not is_logged_in():
+        return redirect(url_for("login"))
+
+    return render_template(
+        "index.html",
+        username=get_current_username()
+    )
