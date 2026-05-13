@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Environment Monitoring System</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js (UMD build from CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <h1>Smart Environment Monitoring System</h1>
+            <p class="subtitle">Real-time environmental monitoring dashboard (AWS API)</p>
+        </div>
+        <div class="topbar-right">
+            <div class="user-chip">
+                Logged in as <strong id="usernameLabel">admin</strong>
+            </div>
+            <a class="logout-btn" href="login.html" id="logoutBtn">Logout</a>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Top status row -->
+        <section class="status-grid">
+            <div class="card status-card">
+                <span class="status-label">System Status</span>
+                <span id="systemStatus" class="status-value">Loading...</span>
+            </div>
+
+            <div class="card status-card">
+                <span class="status-label">Device ID</span>
+                <span id="deviceId" class="status-value">--</span>
+            </div>
+
+            <div class="card status-card">
+                <span class="status-label">Warning Count</span>
+                <span id="warningCount" class="status-value">0</span>
+            </div>
+
+            <div class="card status-card">
+                <span class="status-label">Last Successful Update</span>
+                <span id="lastUpdateTime" class="status-value">--</span>
+            </div>
+        </section>
+
+        <!-- Warning banner -->
+        <section id="warningBanner" class="warning-banner normal">
+            Loading sensor data...
+        </section>
+
+        <!-- Latest reading cards -->
+        <section class="dashboard-grid">
+            <div class="card reading-card">
+                <h2>Temperature</h2>
+                <p class="reading-value"><span id="temperature">--</span> &deg;C</p>
+                <p class="reading-meta">Last reading time: <span id="timestamp">--</span></p>
+            </div>
+
+            <div class="card reading-card">
+                <h2>Humidity</h2>
+                <p class="reading-value"><span id="humidity">--</span> %</p>
+                <p class="reading-meta">Current relative humidity</p>
+            </div>
+
+            <div class="card reading-card">
+                <h2>Pressure</h2>
+                <p class="reading-value"><span id="pressure">--</span> hPa</p>
+                <p class="reading-meta">Current atmospheric pressure</p>
+            </div>
+        </section>
+
+        <!-- Warning list + dataset info -->
+        <section class="two-column-grid">
+            <div class="card">
+                <h2>Warnings</h2>
+                <ul id="warnings" class="warning-list">
+                    <li>Loading...</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2>Dataset Info</h2>
+                <div class="runtime-grid">
+                    <div class="runtime-item">
+                        <span class="runtime-label">Readings Loaded</span>
+                        <span id="readingsCount" class="runtime-value">0</span>
+                    </div>
+                    <div class="runtime-item">
+                        <span class="runtime-label">Latest Timestamp</span>
+                        <span id="latestTimestamp" class="runtime-value">--</span>
+                    </div>
+                    <div class="runtime-item">
+                        <span class="runtime-label">Earliest Timestamp</span>
+                        <span id="earliestTimestamp" class="runtime-value">--</span>
+                    </div>
+                    <div class="runtime-item">
+                        <span class="runtime-label">Last Fetch Status</span>
+                        <span id="fetchStatus" class="runtime-value">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Trend analysis -->
+        <section class="card">
+            <h2>Temperature Analysis</h2>
+            <div class="analysis-grid">
+                <div class="analysis-box">
+                    <h3>Spike / Drop Detection</h3>
+                    <p id="spike_drop">No analysis available.</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Trend Detection</h3>
+                    <p id="trend">No analysis available.</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Summary</h3>
+                    <p id="prediction">No analysis available.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Chart -->
+        <section class="card">
+            <div class="section-header">
+                <h2>Historical Sensor Chart</h2>
+                <span class="muted-note">Auto-refreshes from AWS API</span>
+            </div>
+            <canvas id="tempChart"></canvas>
+        </section>
+
+        <!-- Current thresholds (read-only, from AWS settings) -->
+        <section class="card">
+            <h2>Current Thresholds (from AWS)</h2>
+            <p class="card-note">
+                Threshold values used for warning checks. These come from the
+                <code>settings</code> object returned by the API.
+            </p>
+            <div class="analysis-grid">
+                <div class="analysis-box">
+                    <h3>Temperature</h3>
+                    <p id="thresholdTemp">--</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Humidity</h3>
+                    <p id="thresholdHumidity">--</p>
+                </div>
+                <div class="analysis-box">
+                    <h3>Pressure</h3>
+                    <p id="thresholdPressure">--</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

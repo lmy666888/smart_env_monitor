@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Smart Environment Monitoring System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-body">
+    <main class="login-page">
+        <div class="login-card">
+            <h1>Smart Environment Monitoring System</h1>
+            <p class="subtitle">Administrator Login</p>
+
+            <div id="loginError" class="warning-banner error" style="display:none;"></div>
+
+            <form id="loginForm" class="settings-form" autocomplete="off">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" required>
+
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" required>
+                </div>
+
+                <button type="submit">Login</button>
+            </form>
+
+            <p class="card-note" style="margin-top:14px;">
+                Demo credentials: <code>admin / admin123</code>
+            </p>
+        </div>
+    </main>
+
+    <script src="config.js"></script>
+    <script>
+        // Lightweight client-side login gate for coursework demo only.
+        // It just stores a flag in sessionStorage and redirects to index.html.
+        (function () {
+            const form = document.getElementById("loginForm");
+            const errorBox = document.getElementById("loginError");
+
+            // If already "logged in", go straight to the dashboard.
+            if (sessionStorage.getItem("sem_logged_in") === "true") {
+                window.location.href = "index.html";
+                return;
+            }
+
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+
+                const username = document.getElementById("username").value.trim();
+                const password = document.getElementById("password").value;
+
+                const expectedUser = (window.APP_CONFIG && window.APP_CONFIG.DEMO_USERNAME) || "admin";
+                const expectedPass = (window.APP_CONFIG && window.APP_CONFIG.DEMO_PASSWORD) || "admin123";
+
+                if (username === expectedUser && password === expectedPass) {
+                    sessionStorage.setItem("sem_logged_in", "true");
+                    sessionStorage.setItem("sem_username", username);
+                    window.location.href = "index.html";
+                } else {
+                    errorBox.textContent = "Invalid username or password.";
+                    errorBox.style.display = "block";
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
