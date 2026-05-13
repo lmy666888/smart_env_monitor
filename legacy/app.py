@@ -14,7 +14,7 @@ from flask import (
 )
 
 from config import get_config
-from database.database import (
+from legacy.database import (
     get_latest_data,
     get_recent_sensor_data,
     get_recent_temperature_data,
@@ -26,18 +26,16 @@ from database.database import (
 from sensors.sensor_reader import (
     collect_and_store_reading,
     get_sensor_source_name,
-    is_sense_hat_available as is_sensor_source_available,
 )
 
 from services.analysis_service import analyze_temperature_trend
-from services.auth_service import (
+from legacy.auth_service import (
     build_login_result,
     get_current_username,
-    get_auth_config_summary,
     is_logged_in,
     logout_user,
 )
-from services.display_service import (
+from legacy.display_service import (
     get_display_status,
     show_startup_message,
     show_system_error,

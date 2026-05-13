@@ -1,7 +1,7 @@
 import logging
 import time
 from typing import Any, Dict, Optional
-from database.database import insert_sensor_data
+from legacy.database import insert_sensor_data
 # logger
 logger = logging.getLogger("smart_env_monitor.sensor")
 # try load emulator
