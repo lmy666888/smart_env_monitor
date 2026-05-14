@@ -1,10 +1,7 @@
 
 import logging
-import os
 from typing import Dict, List, Any, Optional
-
-SPIKE_THRESHOLD = float(os.getenv("SPIKE_THRESHOLD", "3.0"))
-STABILITY_THRESHOLD = float(os.getenv("STABILITY_THRESHOLD", "0.1"))
+from config import Config
 
 # logger
 logger = logging.getLogger("smart_env_monitor.analysis")
@@ -30,7 +27,7 @@ def _safe_temperature_list(rows: List[Any]) -> List[float]:
 # detect sudden change
 def detect_spike_or_drop(
     temperatures: List[float],
-    threshold: float = SPIKE_THRESHOLD
+    threshold: float = Config.SPIKE_THRESHOLD
 ) -> str:
     """check spike or drop"""
     if len(temperatures) < 2:
@@ -91,7 +88,7 @@ def predict_threshold_exceedance(
     avg_change = (temperatures[-1] - temperatures[0]) / (len(temperatures) - 1)
     current_temp = temperatures[-1]
 
-    stability_threshold = STABILITY_THRESHOLD
+    stability_threshold = getattr(Config, "STABILITY_THRESHOLD", 0.1)
 
     logger.debug(
         "Prediction analysis: avg_change=%.3f current_temp=%.2f",

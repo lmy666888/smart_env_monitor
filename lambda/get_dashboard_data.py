@@ -41,21 +41,14 @@ from typing import Any, Dict, List
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from shared.dynamo_settings import load_settings
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SmartEnvSensorData")
 SETTINGS_TABLE_NAME = os.environ.get("SETTINGS_TABLE_NAME", "SmartEnvSettings")
 READING_LIMIT = int(os.environ.get("READING_LIMIT", "50"))
-
-DEFAULT_SETTINGS: Dict[str, float] = {
-    "temp_min": 0,
-    "temp_max": 40,
-    "humidity_min": 20,
-    "humidity_max": 80,
-    "pressure_min": 980,
-    "pressure_max": 1030,
-}
 
 _dynamodb = boto3.resource("dynamodb")
 
@@ -88,19 +81,7 @@ def _build_response(status_code: int, payload: Dict[str, Any]) -> Dict[str, Any]
 
 def _load_settings() -> Dict[str, float]:
     """Load threshold settings from DynamoDB, falling back to defaults."""
-    try:
-        table = _dynamodb.Table(SETTINGS_TABLE_NAME)
-        response = table.get_item(Key={"id": "global"})
-        item = response.get("Item")
-        if not item:
-            logger.info("No settings row found, returning defaults.")
-            return dict(DEFAULT_SETTINGS)
-        # Drop the partition key from the response.
-        item.pop("id", None)
-        return _decimal_to_native(item)
-    except Exception as exc:
-        logger.exception("Failed to read settings: %s", exc)
-        return dict(DEFAULT_SETTINGS)
+    return load_settings(SETTINGS_TABLE_NAME)
 
 
 def _load_recent_readings(device_id: str = "pi-001") -> List[Dict[str, Any]]:

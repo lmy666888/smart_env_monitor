@@ -6,34 +6,27 @@ device and stored in AWS.
 
 ## 1. Logging in
 
-1. Open `frontend/login.html` (or visit `/login.html` if hosted).
-2. Enter the demo credentials: `admin / admin123`.
-3. You will be redirected to the dashboard.
+1. Start Flask (`python run.py`), then open **http://127.0.0.1:5001/login** (or `/` redirect).
+2. Enter the demo credentials: `admin / admin123` (unless `DISABLE_AUTH=1`).
+3. You will be redirected to `/dashboard`.
 
-> The login screen is a **client-side gate only**, intended for coursework
-> demonstration. It does not provide real authentication.
+> Session-based login is enforced by Flask when auth is enabled; `DISABLE_AUTH` is for trusted local demos only.
 
 ## 2. Dashboard sections
 
 | Section | What it shows |
 |---|---|
-| System Status | "Online" / "Offline / Error" depending on the last API call. |
-| Device ID | The `device_id` from the most recent reading. |
-| Warning Count | Number of thresholds currently violated by the latest reading. |
-| Last Successful Update | Local time of the last good fetch. |
-| Warning Banner | Green for normal, orange for threshold warnings, red for connectivity / data errors. |
-| Reading Cards | Latest temperature (°C), humidity (%) and pressure (hPa). |
-| Warnings | One bullet per active threshold violation. |
-| Dataset Info | How many readings the dashboard currently has loaded, plus earliest/latest timestamps. |
-| Temperature Analysis | Spike/drop detection, overall trend direction, summary range. |
-| Historical Chart | Line chart with three series: temperature, humidity, pressure. |
-| Current Thresholds | The min/max values returned by the API in the `settings` block. |
+| System / cloud status | Local Flask health and cloud reachability indicators. |
+| Warning level | Normal / warning / critical from threshold logic. |
+| Reading cards | Latest temperature, humidity, pressure from cloud payload. |
+| Warnings | Active threshold violations. |
+| Temperature intelligence | Spike/trend/prediction from `services/analysis_service`. |
+| Historical chart | Temperature series from recent `sensor_data`. |
+| Threshold form | Persists to AWS via `/api/settings` when configured. |
 
 ## 3. Refresh cadence
 
-By default the dashboard refetches every 5 seconds (see
-`REFRESH_INTERVAL_MS` in `frontend/config.js`). Adjust as needed for the
-demo or video recording.
+Polling interval is set in `templates/index.html` (`window.APP_CONFIG.dataRefreshMs`, default a few seconds). Adjust there for demos or recordings.
 
 ## 4. Warning rules
 
@@ -55,7 +48,4 @@ If none apply, the banner shows **"All readings are within normal ranges."**
 
 ## 6. Error handling
 
-- API errors and timeouts are shown on the warning banner and in the dataset
-  info ("Last Fetch Status").
-- If a previous refresh succeeded, that data is kept on screen while
-  retrying so the dashboard does not blank out during transient failures.
+- Failed `/api/data` polls surface in the warning banner and status cards; transient failures may keep the last good payload on screen until the next successful refresh.

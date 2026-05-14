@@ -1,85 +1,64 @@
 # Setup Guide
 
-This guide explains how to run the Smart Environment Monitoring System
-locally and how the pieces map to the deployed AWS resources.
+How to run **SMART_ENV_MONITOR** locally and how it maps to AWS.
 
 ## 1. Prerequisites
 
-- Python 3.10+ (only needed if you want to run the legacy Flask app or the
-  device-side script locally).
-- A modern browser (Chrome, Edge, Firefox, Safari).
-- (Optional) AWS account if you want to redeploy the Lambdas.
+- Python 3.10+ (Flask dashboard + optional device sender).
+- A modern browser.
+- (Optional) AWS account if you redeploy Lambdas or change API Gateway.
 
 ## 2. Project layout
 
 ```
 smart_env_monitor/
-├── frontend/            Static HTML/CSS/JS dashboard (talks directly to AWS).
-├── lambda/              Source code for the AWS Lambda backends.
-│   └── shared/          Shared analysis + warning helpers used by Lambdas
-│                        (and by the legacy Flask app).
-├── device/              Device-side scripts (run on the Raspberry Pi).
-├── sensors/             Legacy emulator-based sensor reader (Flask path).
-├── legacy/              Original Assignment 1 Flask app (kept for reference).
-├── templates/, static/  Templates / assets used by the legacy Flask app.
-├── docs/                Documentation (you are here).
-└── config.py            Shared configuration class for Python components.
+├── api/                 Flask app factory, REST `/api/*`, HTML pages (`pages` blueprint)
+├── cloud/               HTTP client for API Gateway
+├── config/              Settings (`config.settings`)
+├── sensor/              Sense HAT / emulator reads + cloud ingest collector
+├── device/              Standalone Pi uploader (`python -m device.device_sender`)
+├── services/            Dashboard payload, warnings, analysis
+├── templates/, static/  Flask dashboard (canonical UI)
+├── lambda/              Lambda source + `shared/` helpers for deploy zips
+├── legacy/              SQLite cache + Sense HAT LED helpers (see `legacy/README.md`)
+├── docs/                Documentation
+├── run.py               Preferred local entrypoint
+└── requirements.txt
 ```
 
-## 3. AWS endpoint
+## 3. AWS endpoints
 
-The frontend talks to:
+Configure URLs via environment variables or `.env` (see `config/settings.py` and root `README.md`). Typical values include `AWS_DATA_URL`, `AWS_INGEST_URL`, and `AWS_SETTINGS_URL`.
 
-```
-https://9jzbd9a34j.execute-api.ap-southeast-2.amazonaws.com/data
-```
-
-This URL is set in `frontend/config.js`. Update `API_ENDPOINT` if the API
-Gateway URL changes.
-
-## 4. Running the frontend locally
-
-The frontend is a fully static site, but most browsers block `fetch()` from
-`file://` pages, so serve it over HTTP:
+## 4. Running the Flask dashboard (recommended)
 
 ```bash
-cd frontend
-python3 -m http.server 8000
-```
-
-Then open <http://localhost:8000/login.html> in your browser and use the demo
-credentials `admin / admin123`.
-
-The dashboard will:
-
-1. Fetch the AWS endpoint every few seconds.
-2. Validate, sort and display the latest reading.
-3. Render trend/spike analysis and a multi-series Chart.js graph.
-4. Apply threshold checks using the `settings` block in the API response.
-
-## 5. Running the legacy Flask app (optional)
-
-The legacy SQLite-backed Flask app is kept under `legacy/` for reference:
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+export DISABLE_AUTH=1             # optional, for quick local demos
+python run.py
+```
+
+Open **http://127.0.0.1:5001/dashboard** (default port in `config.settings`).
+
+The browser loads data through Flask (`/api/data`), which proxies DynamoDB-backed API Gateway responses.
+
+## 5. Alternate entrypoint
+
+```bash
 python -m legacy.app
 ```
 
-It serves the same dashboard on `http://localhost:5000` using local SQLite
-data and the Sense HAT emulator.
+Same application as `run.py` (`create_app()`).
 
-## 6. Running the device sender on a Pi
+## 6. Device sender on a Pi
 
 ```bash
-export INGEST_ENDPOINT="https://<api-id>.execute-api.<region>.amazonaws.com/ingest"
+pip install -r requirements.txt
+export AWS_INGEST_URL="https://<api-id>.execute-api.<region>.amazonaws.com/ingest"
 export DEVICE_ID="pi-001"
-export SEND_INTERVAL=30
 python -m device.device_sender
 ```
 
-## 7. Updating the Lambdas
-
-Each file in `lambda/` is a self-contained handler. Zip the file plus
-`lambda/shared/*` if needed and upload via the AWS console or your IaC tool.
-Required environment variables are documented at the top of each handler.
+Use the same venv and `config` / `cloud` defaults as on the laptop when possible.

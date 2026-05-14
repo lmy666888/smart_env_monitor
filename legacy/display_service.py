@@ -1,7 +1,8 @@
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 from config import Config
-from warnings_util import (
+from services.warnings_util import (
     generate_warnings,
     get_short_warning_text,
     get_status_color,
@@ -80,7 +81,7 @@ def _normalize_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
         return (255, 255, 0)
 
 # build short text
-def _safe_short_text(warnings: list[str]) -> str:
+def _safe_short_text(warnings: List[str]) -> str:
     """short display text"""
     try:
         text = get_short_warning_text(warnings)
@@ -140,7 +141,7 @@ def clear_display(color: Tuple[int, int, int] = (0, 0, 0)) -> bool:
     """clear display"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("Display clear skipped: backend unavailable.")
+        logger.debug("Display clear skipped: backend unavailable.")
         return False
 
     try:
@@ -156,7 +157,7 @@ def show_status_color(latest: Any, settings: Any) -> bool:
     """show status color"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("Status color display skipped: backend unavailable.")
+        logger.debug("Status color display skipped: backend unavailable.")
         return False
 
     try:
@@ -179,7 +180,7 @@ def scroll_warning_text(
     """scroll warning text"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("Warning text scroll skipped: backend unavailable.")
+        logger.debug("Warning text scroll skipped: backend unavailable.")
         return False
 
     try:
@@ -207,7 +208,7 @@ def update_warning_display(
     """update display"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("Display update skipped: backend unavailable.")
+        logger.debug("Display update skipped: backend unavailable.")
         return False
 
     try:
@@ -242,7 +243,7 @@ def show_startup_message(scroll_speed: float = 0.05) -> bool:
     """show startup"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("Startup message skipped: backend unavailable.")
+        logger.debug("Startup message skipped: backend unavailable.")
         return False
     try:
         sense.clear((0, 0, 255))
@@ -265,7 +266,7 @@ def show_system_error(
     """show error"""
     sense = get_sense_instance()
     if sense is None:
-        logger.warning("System error display skipped: backend unavailable.")
+        logger.debug("System error display skipped: backend unavailable.")
         return False
 
 

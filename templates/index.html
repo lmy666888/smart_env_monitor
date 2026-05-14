@@ -3,194 +3,228 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Environment Monitoring System</title>
+    <title>Smart Environment Cloud Monitor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
+        <div class="loading-spinner"></div>
+        <p>Syncing with cloud…</p>
+    </div>
+
     <header class="topbar">
         <div class="topbar-left">
-            <h1>Smart Environment Monitoring System</h1>
-            <p class="subtitle">Real-time environmental monitoring dashboard</p>
+            <div class="brand-mark" aria-hidden="true"></div>
+            <div>
+                <h1>Smart Environment Cloud Monitor</h1>
+                <p class="subtitle">AWS serverless IoT pipeline · DynamoDB · API Gateway</p>
+            </div>
         </div>
         <div class="topbar-right">
             <div class="user-chip">
-                Logged in as <strong>{{ username or "admin" }}</strong>
+                <span class="user-label">Operator</span>
+                <strong>{{ username or "admin" }}</strong>
             </div>
-            <a class="logout-btn" href="{{ url_for('logout') }}">Logout</a>
+            <a class="logout-btn" href="{{ url_for('pages.logout') }}">Logout</a>
         </div>
     </header>
 
     <main class="container">
-        <section class="status-grid">
-            <div class="card status-card">
-                <span class="status-label">System Status</span>
-                <span id="systemStatus" class="status-value">Loading...</span>
-            </div>
-
-            <div class="card status-card">
-                <span class="status-label">Sensor Source</span>
-                <span id="sensorSource" class="status-value">--</span>
-            </div>
-
-            <div class="card status-card">
-                <span class="status-label">Warning Count</span>
-                <span id="warningCount" class="status-value">0</span>
-            </div>
-
-            <div class="card status-card">
-                <span class="status-label">Last Successful Update</span>
-                <span id="lastUpdateTime" class="status-value">--</span>
+        <section class="cloud-strip">
+            <div class="cloud-strip-inner">
+                <span class="pill pill-cloud">Flask dashboard</span>
+                <span class="pill pill-muted">Live data: GET /data (API Gateway)</span>
+                <span class="pill pill-muted">Ingest: POST /ingest</span>
             </div>
         </section>
 
-        <section id="warningBanner" class="warning-banner normal">
+        <section class="status-grid">
+            <div class="card status-card">
+                <span class="status-label">System</span>
+                <span id="systemStatus" class="status-value">Loading…</span>
+                <span class="status-hint">Local Flask process</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">Cloud API</span>
+                <span id="cloudApiStatus" class="status-value">--</span>
+                <span class="status-hint">Reachability of AWS data endpoint</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">DynamoDB (inferred)</span>
+                <span id="dynamoStatus" class="status-value">--</span>
+                <span class="status-hint">Last successful ingest HTTP 2xx</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">Sensor backend</span>
+                <span id="sensorSource" class="status-value">--</span>
+                <span class="status-hint">Sense HAT / emulator / mock</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">Warning level</span>
+                <span id="overallStatusLevel" class="status-value status-pill normal">Normal</span>
+                <span class="status-hint">Derived from cloud readings + thresholds</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">Last cloud fetch</span>
+                <span id="lastCloudFetch" class="status-value">--</span>
+                <span class="status-hint">Browser → Flask → AWS</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">Last device upload</span>
+                <span id="lastCloudUpload" class="status-value">--</span>
+                <span class="status-hint">Collector → ingest</span>
+            </div>
+            <div class="card status-card">
+                <span class="status-label">UI refresh</span>
+                <span id="lastUpdateTime" class="status-value">--</span>
+                <span class="status-hint">Last successful dashboard poll</span>
+            </div>
+        </section>
+
+        <section id="warningBanner" class="warning-banner normal" role="status">
             All readings are within normal ranges.
+        </section>
+
+        <section id="emptyState" class="empty-state hidden" aria-live="polite">
+            <h2>No cloud samples yet</h2>
+            <p>
+                Start the Flask app (collector thread) or run
+                <code>python -m device.device_sender</code> to stream readings to ingest.
+                The dashboard reads from DynamoDB via the public <strong>/data</strong> endpoint.
+            </p>
         </section>
 
         <section class="dashboard-grid">
             <div class="card reading-card">
                 <h2>Temperature</h2>
                 <p class="reading-value"><span id="temperature">--</span> °C</p>
-                <p class="reading-meta">Last reading time: <span id="timestamp">--</span></p>
+                <p class="reading-meta">Latest from cloud · <span id="timestamp">--</span></p>
             </div>
-
             <div class="card reading-card">
                 <h2>Humidity</h2>
                 <p class="reading-value"><span id="humidity">--</span> %</p>
-                <p class="reading-meta">Current relative humidity</p>
+                <p class="reading-meta">Relative humidity</p>
             </div>
-
             <div class="card reading-card">
                 <h2>Pressure</h2>
                 <p class="reading-value"><span id="pressure">--</span> hPa</p>
-                <p class="reading-meta">Current atmospheric pressure</p>
+                <p class="reading-meta">Atmospheric pressure</p>
             </div>
         </section>
 
         <section class="two-column-grid">
             <div class="card">
                 <h2>Warnings</h2>
+                <p class="card-note">Threshold checks run in the browser using live cloud data and settings from DynamoDB.</p>
                 <ul id="warnings" class="warning-list">
                     <li>No warnings.</li>
                 </ul>
+                <div class="warning-count-row">
+                    <span class="muted-note">Active issues:</span>
+                    <strong id="warningCount">0</strong>
+                </div>
             </div>
-
             <div class="card">
-                <h2>System Runtime</h2>
+                <h2>Collector &amp; display</h2>
                 <div class="runtime-grid">
                     <div class="runtime-item">
-                        <span class="runtime-label">Collector Thread</span>
+                        <span class="runtime-label">Upload worker</span>
                         <span id="collectorStatus" class="runtime-value">--</span>
                     </div>
                     <div class="runtime-item">
-                        <span class="runtime-label">Last Collection</span>
+                        <span class="runtime-label">Last local collection</span>
                         <span id="lastCollectionTime" class="runtime-value">--</span>
                     </div>
                     <div class="runtime-item">
-                        <span class="runtime-label">Last Display Update</span>
+                        <span class="runtime-label">Sense HAT LED update</span>
                         <span id="lastDisplayUpdate" class="runtime-value">--</span>
                     </div>
                     <div class="runtime-item">
-                        <span class="runtime-label">Consecutive Failures</span>
+                        <span class="runtime-label">Consecutive upload failures</span>
                         <span id="failureCount" class="runtime-value">0</span>
                     </div>
                 </div>
+                <p class="card-note subtle">LED matrix uses cached cloud thresholds after the first successful <code>/data</code> fetch.</p>
             </div>
         </section>
 
         <section class="card">
-            <h2>Temperature Analysis</h2>
+            <h2>Temperature intelligence</h2>
             <div class="analysis-grid">
                 <div class="analysis-box">
-                    <h3>Spike / Drop Detection</h3>
+                    <h3>Spike / drop</h3>
                     <p id="spike_drop">No analysis available.</p>
                 </div>
                 <div class="analysis-box">
-                    <h3>Trend Detection</h3>
+                    <h3>Trend</h3>
                     <p id="trend">No analysis available.</p>
                 </div>
                 <div class="analysis-box">
-                    <h3>Threshold Prediction</h3>
+                    <h3>Threshold prediction</h3>
                     <p id="prediction">No analysis available.</p>
                 </div>
             </div>
         </section>
 
-        <section class="card">
+        <section class="card chart-card">
             <div class="section-header">
-                <h2>Historical Temperature Chart</h2>
-                <span class="muted-note">Updates automatically every 3 seconds</span>
+                <h2>Historical temperature</h2>
+                <span class="muted-note">Chronological series from cloud payload</span>
             </div>
-            <canvas id="tempChart"></canvas>
+            <canvas id="tempChart" height="120"></canvas>
         </section>
 
         <section class="form-grid">
             <div class="card">
-                <h2>Warning Threshold Settings</h2>
+                <h2>Cloud threshold settings</h2>
                 <p class="card-note">
-                    Adjust warning thresholds for temperature, humidity, and pressure.
+                    Persists to DynamoDB via the configured <strong>/settings</strong> API (same AWS account as <code>/data</code>).
                 </p>
-
                 <form id="settingsForm" class="settings-form">
                     <div class="form-group">
-                        <h3>Temperature Thresholds</h3>
-                        <label for="temp_min">Minimum Temperature (°C)</label>
+                        <h3>Temperature</h3>
+                        <label for="temp_min">Minimum (°C)</label>
                         <input type="number" step="0.1" id="temp_min" name="temp_min" required>
-
-                        <label for="temp_max">Maximum Temperature (°C)</label>
+                        <label for="temp_max">Maximum (°C)</label>
                         <input type="number" step="0.1" id="temp_max" name="temp_max" required>
                     </div>
-
                     <div class="form-group">
-                        <h3>Humidity Thresholds</h3>
-                        <label for="humidity_min">Minimum Humidity (%)</label>
+                        <h3>Humidity</h3>
+                        <label for="humidity_min">Minimum (%)</label>
                         <input type="number" step="0.1" id="humidity_min" name="humidity_min" required>
-
-                        <label for="humidity_max">Maximum Humidity (%)</label>
+                        <label for="humidity_max">Maximum (%)</label>
                         <input type="number" step="0.1" id="humidity_max" name="humidity_max" required>
                     </div>
-
                     <div class="form-group">
-                        <h3>Pressure Thresholds</h3>
-                        <label for="pressure_min">Minimum Pressure (hPa)</label>
+                        <h3>Pressure</h3>
+                        <label for="pressure_min">Minimum (hPa)</label>
                         <input type="number" step="0.1" id="pressure_min" name="pressure_min" required>
-
-                        <label for="pressure_max">Maximum Pressure (hPa)</label>
+                        <label for="pressure_max">Maximum (hPa)</label>
                         <input type="number" step="0.1" id="pressure_max" name="pressure_max" required>
                     </div>
-
-                    <button id="settingsSubmitBtn" type="submit">Save Settings</button>
+                    <button id="settingsSubmitBtn" type="submit">Save to cloud</button>
                 </form>
-
                 <p id="settingsMessage" class="form-message"></p>
             </div>
-
             <div class="card">
-                <h2>Manual Sensor Input (Testing)</h2>
-                <p class="card-note">
-                    Use this panel to simulate abnormal conditions for testing and demonstration.
-                </p>
-
+                <h2>Manual ingest (testing)</h2>
+                <p class="card-note">POSTs one synthetic reading to <strong>/ingest</strong> using your configured <code>DEVICE_ID</code>.</p>
                 <form id="simulateForm" class="settings-form">
                     <div class="form-group">
                         <label for="sim_temperature">Temperature (°C)</label>
                         <input type="number" step="0.1" id="sim_temperature" required>
                     </div>
-
                     <div class="form-group">
                         <label for="sim_humidity">Humidity (%)</label>
                         <input type="number" step="0.1" id="sim_humidity" required>
                     </div>
-
                     <div class="form-group">
                         <label for="sim_pressure">Pressure (hPa)</label>
                         <input type="number" step="0.1" id="sim_pressure" required>
                     </div>
-
-                    <button id="simulateSubmitBtn" type="submit">Submit Sensor Data</button>
+                    <button id="simulateSubmitBtn" type="submit">Send to ingest</button>
                 </form>
-
                 <p id="simulateMessage" class="form-message"></p>
             </div>
         </section>
@@ -198,7 +232,7 @@
 
     <script>
         window.APP_CONFIG = {
-            dataRefreshMs: 3000
+            dataRefreshMs: 4000
         };
     </script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>

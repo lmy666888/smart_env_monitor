@@ -12,14 +12,22 @@
             <h1>Smart Environment Monitoring System</h1>
             <p class="subtitle">Administrator Login</p>
 
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="warning-banner normal">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
             {% if error %}
                 <div class="warning-banner error">{{ error }}</div>
             {% endif %}
 
-            <form method="POST" action="{{ url_for('login') }}" class="settings-form">
+            <form method="POST" action="{{ url_for('pages.login') }}" class="settings-form">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input id="username" name="username" type="text" required>
+                    <input id="username" name="username" type="text" required autofocus>
 
                     <label for="password">Password</label>
                     <input id="password" name="password" type="password" required>
@@ -27,6 +35,10 @@
 
                 <button type="submit">Login</button>
             </form>
+
+            <p class="card-note" style="margin-top:16px;">
+                Demo credentials: <code>admin</code> / <code>admin123</code>
+            </p>
         </div>
     </main>
 </body>

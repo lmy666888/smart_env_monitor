@@ -1,55 +1,31 @@
 # Troubleshooting
 
-## Dashboard shows "Failed to load sensor data"
+## Browser shows errors or blank dashboard
 
-- Open the browser DevTools "Network" tab and inspect the request to the
-  AWS endpoint.
-  - **HTTP 4xx / 5xx**: the API Gateway / Lambda is broken; check the
-    CloudWatch logs of `get_dashboard_data`.
-  - **CORS error in the console**: ensure the API Gateway response
-    includes `Access-Control-Allow-Origin: *` (the bundled Lambdas already
-    do this).
-  - **Network timeout**: confirm you have internet access; the request
-    times out after `FETCH_TIMEOUT_MS` (8 s by default).
+- Run the **Flask** app (`python run.py`) and open **http://127.0.0.1:5001/dashboard** — the UI is served from `templates/` + `static/`, not from a separate static tree.
+- In DevTools → Network, inspect **`/api/data`** (Flask → AWS). Failures there mirror API Gateway / Lambda issues; check CloudWatch for the Lambdas behind `/data` and `/ingest`.
 
 ## Latest values stuck at `--`
 
-- The `sensor_data` array might be empty. Check the raw response (DevTools
-  → Network → click on `data` → "Preview").
-- Readings that fail validation (`validateSensorReading`) are filtered out.
-  Inspect the response for non-numeric or out-of-range values.
+- The `sensor_data` array in the AWS response might be empty. Inspect the JSON from `/api/data` (or call your API Gateway `/data` URL directly).
+- Invalid readings are dropped server-side in Lambda ingest validation.
 
 ## Warning banner stays orange when readings look fine
 
-- The `settings` block returned by the API might be too strict. The
-  banner just compares the latest reading against `temp_min/max`,
-  `humidity_min/max` and `pressure_min/max`.
-- Update settings via the update Lambda (or DynamoDB directly) and
-  refresh.
+- The `settings` block from DynamoDB might be too strict. Adjust thresholds via **Save to cloud** (Flask `/api/settings` → AWS `/settings`) or edit DynamoDB.
 
 ## Chart not rendering
 
-- Confirm `https://cdn.jsdelivr.net/npm/chart.js@4.4.1/...` is reachable
-  (or download it locally if you are offline).
-- The chart requires the `<canvas id="tempChart">` element to exist on the
-  page; do not remove it from `index.html`.
+- Confirm the Chart.js CDN URL in `templates/index.html` is reachable.
+- The page must include `<canvas id="tempChart">` (see `templates/index.html`).
 
-## Browser blocks `fetch()` from `file://`
+## Legacy / SQLite / Sense HAT
 
-- Serve the `frontend/` folder via `python3 -m http.server` (see the
-  setup guide). Modern browsers reject cross-origin requests when the
-  page is loaded from a local file.
-
-## Legacy Flask app fails to import `services.analysis_service`
-
-- The legacy app was originally part of Assignment 1 and predates the
-  current `lambda/shared/` layout. The new system uses the AWS endpoint
-  via the static frontend; you do not need to run the Flask app for the
-  coursework demo. If you do want to run it, update the imports in
-  `legacy/app.py` to point at `lambda/shared/`.
+- Optional SQLite mirror: `USE_SQLITE_CACHE=1` uses `legacy/database.py`.
+- LED matrix helpers: `legacy/display_service.py`. See `legacy/README.md`.
 
 ## Device sender cannot post readings
 
-- Verify `INGEST_ENDPOINT` is set and points at the ingest Lambda URL.
+- Verify `AWS_INGEST_URL` is set (see `config/settings.py`; older docs may mention `INGEST_ENDPOINT`).
 - Confirm the device has internet access.
 - Check CloudWatch logs of `ingest_sensor_data` for 4xx validation errors.

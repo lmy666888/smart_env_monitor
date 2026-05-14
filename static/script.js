@@ -1,20 +1,81 @@
 let chart = null;
 let isSettingsFormDirty = false;
 let lastSuccessfulPayload = null;
+let firstLoadComplete = false;
 
 function formatDisplayTime(value) {
     if (!value) return "--";
     return String(value);
 }
 
+function setLoading(isLoading) {
+    const overlay = document.getElementById("loadingOverlay");
+    if (!overlay) return;
+    overlay.classList.toggle("visible", isLoading);
+    overlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
+}
+
 function setButtonLoading(buttonId, isLoading, loadingText, defaultText) {
     const btn = document.getElementById(buttonId);
     if (!btn) return;
-
     btn.disabled = isLoading;
     btn.textContent = isLoading ? loadingText : defaultText;
 }
+
+function setEmptyStateVisible(show) {
+    const el = document.getElementById("emptyState");
+    if (!el) return;
+    el.classList.toggle("hidden", !show);
+}
+
+function updateOverallLevel(level) {
+    const el = document.getElementById("overallStatusLevel");
+    if (!el) return;
+    const map = {
+        normal: "Normal",
+        warning: "Warning",
+        critical: "Critical",
+        error: "Error"
+    };
+    el.textContent = map[level] || map.normal;
+    el.classList.remove("normal", "warning", "critical", "error");
+    el.classList.add("status-pill", level === "critical" ? "critical" : level || "normal");
+}
+
+function updateCloudPanels(data) {
+    const rt = data.runtime || {};
+    const cloud = data.cloud || {};
+
+    const fetchOk = rt.cloud_api_reachable === true;
+    const cloudEl = document.getElementById("cloudApiStatus");
+    if (cloudEl) {
+        cloudEl.textContent = fetchOk ? "Online" : "Offline / degraded";
+        cloudEl.classList.toggle("text-ok", fetchOk);
+        cloudEl.classList.toggle("text-bad", !fetchOk);
+    }
+
+    const dynamoEl = document.getElementById("dynamoStatus");
+    if (dynamoEl) {
+        const ok = rt.dynamodb_indicated_ok === true;
+        dynamoEl.textContent = ok ? "Writes OK" : "Unknown / no recent write";
+        dynamoEl.classList.toggle("text-ok", ok);
+        dynamoEl.classList.toggle("text-warn", !ok);
+    }
+
+    const lastFetch = document.getElementById("lastCloudFetch");
+    if (lastFetch) lastFetch.textContent = formatDisplayTime(rt.last_cloud_fetch_success_at);
+
+    const lastUp = document.getElementById("lastCloudUpload");
+    if (lastUp) lastUp.textContent = formatDisplayTime(rt.last_cloud_upload_success_at);
+
+    if (!firstLoadComplete) {
+        firstLoadComplete = true;
+        setLoading(false);
+    }
+}
+
 async function fetchData() {
+    if (!firstLoadComplete) setLoading(true);
     try {
         const response = await fetch("/api/data");
         const data = await response.json();
@@ -28,6 +89,11 @@ async function fetchData() {
         updateSystemStatus("Online");
         updateLastUpdateTime(new Date().toLocaleString());
         updateSensorSource(data.sensor_source || "--");
+        updateCloudPanels(data);
+
+        const hasPoints = (data.cloud && data.cloud.sensor_points > 0) || (data.latest && data.chart_values && data.chart_values.length);
+        setEmptyStateVisible(!data.latest && !hasPoints);
+
         updateRealtimeReadings(data.latest);
         updateWarnings(data.warnings || [], data.warning_status, data.warning_banner);
         updateAnalysis(data.analysis);
@@ -36,8 +102,11 @@ async function fetchData() {
         updateRuntime(data.runtime || {});
     } catch (error) {
         console.error("Fetch error:", error);
-
-        updateSystemStatus("Offline / Error");
+        updateSystemStatus("Offline / error");
+        updateCloudPanels({
+            runtime: { cloud_api_reachable: false },
+            cloud: {}
+        });
         showWarningBanner("error", "Failed to load monitoring data from the server.");
 
         if (!lastSuccessfulPayload) {
@@ -48,29 +117,31 @@ async function fetchData() {
                 prediction: "Analysis unavailable."
             });
             updateRuntime({});
+            setEmptyStateVisible(true);
+        }
+    } finally {
+        if (!firstLoadComplete) {
+            firstLoadComplete = true;
+            setLoading(false);
         }
     }
 }
 
 function updateSystemStatus(statusText) {
     const statusEl = document.getElementById("systemStatus");
-    if (statusEl) {
-        statusEl.textContent = statusText;
-    }
+    if (statusEl) statusEl.textContent = statusText;
 }
 
 function updateLastUpdateTime(value) {
     const el = document.getElementById("lastUpdateTime");
-    if (el) {
-        el.textContent = value || "--";
-    }
+    if (el) el.textContent = value || "--";
 }
+
 function updateSensorSource(sourceText) {
     const sourceEl = document.getElementById("sensorSource");
-    if (sourceEl) {
-        sourceEl.textContent = sourceText;
-    }
+    if (sourceEl) sourceEl.textContent = sourceText;
 }
+
 function updateRealtimeReadings(latest) {
     const temperatureEl = document.getElementById("temperature");
     const humidityEl = document.getElementById("humidity");
@@ -87,7 +158,6 @@ function updateRealtimeReadings(latest) {
         return;
     }
 
-
     temperatureEl.textContent = Number(latest.temperature).toFixed(2);
     humidityEl.textContent = Number(latest.humidity).toFixed(2);
     pressureEl.textContent = Number(latest.pressure).toFixed(2);
@@ -100,8 +170,8 @@ function updateWarnings(warnings, warningStatus, warningBanner) {
         countEl.textContent = warningStatus?.count ?? warnings.length ?? 0;
     }
 
-
     const level = warningStatus?.level || (warnings.length > 0 ? "warning" : "normal");
+    updateOverallLevel(level);
     showWarningBanner(level, warningBanner || "No warning information available.");
     renderWarnings(warnings);
 }
@@ -110,12 +180,13 @@ function showWarningBanner(level, text) {
     const banner = document.getElementById("warningBanner");
     if (!banner) return;
 
-
     banner.textContent = text || "No warning information available.";
-    banner.classList.remove("normal", "warning", "error");
+    banner.classList.remove("normal", "warning", "error", "critical");
 
     if (level === "error") {
         banner.classList.add("error");
+    } else if (level === "critical") {
+        banner.classList.add("critical");
     } else if (level === "warning") {
         banner.classList.add("warning");
     } else {
@@ -181,11 +252,11 @@ function updateSettingsForm(settings) {
     document.getElementById("pressure_min").value = settings.pressure_min ?? "";
     document.getElementById("pressure_max").value = settings.pressure_max ?? "";
 }
+
 function initChart() {
     const canvas = document.getElementById("tempChart");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-
 
     chart = new Chart(ctx, {
         type: "line",
@@ -195,18 +266,24 @@ function initChart() {
                 {
                     label: "Temperature (°C)",
                     data: [],
-                    tension: 0.25
+                    borderColor: "#4f46e5",
+                    backgroundColor: "rgba(79, 70, 229, 0.12)",
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 2
                 },
                 {
-                    label: "Min Threshold",
+                    label: "Min threshold",
                     data: [],
+                    borderColor: "#94a3b8",
                     borderDash: [6, 6],
                     pointRadius: 0,
                     tension: 0
                 },
                 {
-                    label: "Max Threshold",
+                    label: "Max threshold",
                     data: [],
+                    borderColor: "#f97316",
                     borderDash: [6, 6],
                     pointRadius: 0,
                     tension: 0
@@ -216,24 +293,17 @@ function initChart() {
         options: {
             responsive: true,
             maintainAspectRatio: true,
-            animation: false,
+            animation: { duration: 400 },
             plugins: {
-                legend: {
-                    display: true
-                }
+                legend: { display: true }
             },
             scales: {
                 x: {
-                    title: {
-                        display: true,
-                        text: "Timestamp"
-                    }
+                    title: { display: true, text: "Timestamp" },
+                    ticks: { maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 12 }
                 },
                 y: {
-                    title: {
-                        display: true,
-                        text: "Temperature (°C)"
-                    }
+                    title: { display: true, text: "Temperature (°C)" }
                 }
             }
         }
@@ -264,6 +334,7 @@ function showFormMessage(elementId, message, isSuccess = true) {
     el.classList.remove("success", "error");
     el.classList.add(isSuccess ? "success" : "error");
 }
+
 function validateSettingsPayload(payload) {
     const tempMin = Number(payload.temp_min);
     const tempMax = Number(payload.temp_max);
@@ -282,6 +353,40 @@ function validateSettingsPayload(payload) {
         throw new Error("Pressure minimum must be less than maximum.");
     }
 }
+
+async function parseJsonResponse(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        return { success: false, message: text || "Non-JSON response from server." };
+    }
+}
+
+function apiErrorMessage(result, fallback) {
+    if (!result || typeof result !== "object") return fallback;
+    const parts = [];
+    if (result.message) parts.push(result.message);
+    if (result.error_code) parts.push(`[${result.error_code}]`);
+    if (result.upstream_http_status != null) parts.push(`upstream HTTP ${result.upstream_http_status}`);
+    if (result.upstream_url) parts.push(`at ${result.upstream_url}`);
+    return parts.length ? parts.join(" ") : fallback;
+}
+
+async function prefetchSettingsFromApi() {
+    if (isSettingsFormDirty) return;
+    try {
+        const response = await fetch("/api/settings");
+        const result = await parseJsonResponse(response);
+        if (response.ok && result.success && result.settings) {
+            updateSettingsForm(result.settings);
+        }
+    } catch {
+        /* optional; main poll fills from /api/data */
+    }
+}
+
 async function handleSettingsSubmit(event) {
     event.preventDefault();
 
@@ -295,7 +400,7 @@ async function handleSettingsSubmit(event) {
     };
     try {
         validateSettingsPayload(payload);
-        setButtonLoading("settingsSubmitBtn", true, "Saving...", "Save Settings");
+        setButtonLoading("settingsSubmitBtn", true, "Saving…", "Save to cloud");
 
         const response = await fetch("/api/settings", {
             method: "POST",
@@ -303,24 +408,23 @@ async function handleSettingsSubmit(event) {
             body: JSON.stringify(payload)
         });
 
-        const result = await response.json();
-
-
+        const result = await parseJsonResponse(response);
 
         if (!response.ok || !result.success) {
-            throw new Error(result.message || "Failed to update settings.");
+            throw new Error(apiErrorMessage(result, "Failed to update settings."));
         }
 
-        showFormMessage("settingsMessage", result.message || "Settings updated successfully.", true);
+        showFormMessage("settingsMessage", result.message || "Settings saved to DynamoDB.", true);
         isSettingsFormDirty = false;
         await fetchData();
     } catch (error) {
         console.error("Settings update error:", error);
         showFormMessage("settingsMessage", error.message, false);
     } finally {
-        setButtonLoading("settingsSubmitBtn", false, "Saving...", "Save Settings");
+        setButtonLoading("settingsSubmitBtn", false, "Saving…", "Save to cloud");
     }
 }
+
 async function handleSimulateSubmit(event) {
     event.preventDefault();
 
@@ -330,7 +434,7 @@ async function handleSimulateSubmit(event) {
         pressure: document.getElementById("sim_pressure").value
     };
     try {
-        setButtonLoading("simulateSubmitBtn", true, "Submitting...", "Submit Sensor Data");
+        setButtonLoading("simulateSubmitBtn", true, "Sending…", "Send to ingest");
 
         const response = await fetch("/api/simulate", {
             method: "POST",
@@ -344,18 +448,16 @@ async function handleSimulateSubmit(event) {
             throw new Error(result.message || "Failed to submit sensor data.");
         }
 
-
-        showFormMessage("simulateMessage", result.message || "Sensor data submitted successfully.", true);
+        showFormMessage("simulateMessage", result.message || "Reading accepted by ingest.", true);
         document.getElementById("simulateForm").reset();
         await fetchData();
     } catch (error) {
         console.error("Simulation submit error:", error);
         showFormMessage("simulateMessage", error.message, false);
     } finally {
-        setButtonLoading("simulateSubmitBtn", false, "Submitting...", "Submit Sensor Data");
+        setButtonLoading("simulateSubmitBtn", false, "Sending…", "Send to ingest");
     }
 }
-
 
 function trackSettingsFormChanges() {
     const settingsInputs = document.querySelectorAll("#settingsForm input");
@@ -365,8 +467,6 @@ function trackSettingsFormChanges() {
         });
     });
 }
-
-
 
 function registerEventListeners() {
     const settingsForm = document.getElementById("settingsForm");
@@ -385,7 +485,9 @@ function registerEventListeners() {
 function initDashboard() {
     initChart();
     registerEventListeners();
+    prefetchSettingsFromApi();
     fetchData();
-    setInterval(fetchData, window.APP_CONFIG?.dataRefreshMs || 3000);
+    setInterval(fetchData, window.APP_CONFIG?.dataRefreshMs || 4000);
 }
+
 document.addEventListener("DOMContentLoaded", initDashboard);

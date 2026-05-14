@@ -379,3 +379,195 @@ canvas {
         padding: 16px;
     }
 }
+
+/* --- Assignment 2: cloud IoT polish --- */
+body {
+    font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 40%, #f1f5f9 100%);
+}
+
+.topbar {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.brand-mark {
+    width: 12px;
+    height: 44px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #6366f1, #22d3ee);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.user-label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+}
+
+.cloud-strip {
+    margin-bottom: 18px;
+}
+
+.cloud-strip-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.pill-cloud {
+    background: #e0e7ff;
+    color: #312e81;
+    border: 1px solid #c7d2fe;
+}
+
+.pill-muted {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+.status-hint {
+    display: block;
+    font-size: 0.78rem;
+    color: #64748b;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.status-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+}
+
+.status-pill.normal {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-pill.warning {
+    background: #ffedd5;
+    color: #9a3412;
+}
+
+.status-pill.critical {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status-pill.error {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.text-ok {
+    color: #15803d;
+}
+
+.text-bad {
+    color: #b91c1c;
+}
+
+.text-warn {
+    color: #b45309;
+}
+
+.warning-banner.critical {
+    background: #fef2f2;
+    color: #7f1d1d;
+    border: 1px solid #fecaca;
+}
+
+.warning-count-row {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.subtle {
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.chart-card canvas {
+    min-height: 220px;
+}
+
+.empty-state {
+    border: 1px dashed #cbd5e1;
+    background: #f8fafc;
+    border-radius: 14px;
+    padding: 22px 20px;
+    margin-bottom: 20px;
+}
+
+.empty-state h2 {
+    margin-top: 0;
+    color: #0f172a;
+}
+
+.empty-state.hidden {
+    display: none;
+}
+
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.35);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    color: #f8fafc;
+    font-weight: 600;
+    gap: 12px;
+}
+
+.loading-overlay.visible {
+    display: flex;
+}
+
+.loading-spinner {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #e0e7ff;
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 0.88em;
+}

@@ -1,20 +1,41 @@
 import logging
 import sqlite3
 from contextlib import contextmanager
-from typing import Optional, List, Generator
+from datetime import datetime
+from pathlib import Path
+from typing import Generator, List, Optional
+
 from config import Config
 
 # set up logger
 logger = logging.getLogger("smart_env_monitor.database")
 
-DB_NAME = Config.DB_NAME
+# Resolve to an absolute path (Config.DB_PATH already anchors relative names
+# to the project root). Keep DB_NAME as the public alias for back-compat.
+DB_PATH = Path(getattr(Config, "DB_PATH", Config.DB_NAME))
+DB_NAME = str(DB_PATH)
+
+
+def _ensure_parent_dir() -> None:
+    """Create the directory holding the SQLite file if it does not exist."""
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.warning("Could not create DB parent directory %s: %s", DB_PATH.parent, exc)
+
 
 # open a new sqlite connection
 def create_connection() -> sqlite3.Connection:
     """
     Create a new SQLite connection with row factory enabled.
+
+    Cross-platform: uses an absolute path derived from PROJECT_ROOT so the
+    same DB is used regardless of the caller's working directory.
     """
-    conn = sqlite3.connect(DB_NAME, timeout=5)
+    _ensure_parent_dir()
+    # `check_same_thread=False` lets the background sensor thread share the
+    # connection layer safely (we open a fresh connection per call anyway).
+    conn = sqlite3.connect(DB_NAME, timeout=5, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -42,7 +63,11 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
 def init_db() -> None:
     """
     Initialize database schema and default values.
+
+    Safe to call multiple times; uses CREATE TABLE IF NOT EXISTS / INSERT OR
+    IGNORE so it is idempotent.
     """
+    _ensure_parent_dir()
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
@@ -85,25 +110,33 @@ def init_db() -> None:
 def insert_sensor_data(
     temperature: float,
     humidity: float,
-    pressure: float
+    pressure: float,
+    timestamp: Optional[str] = None,
 ) -> bool:
     """
     Insert one sensor reading into the database.
+
+    If `timestamp` is omitted, a local-time wall-clock string in the form
+    "YYYY-MM-DD HH:MM:SS" is generated. Using an explicit timestamp keeps
+    the values stored in SQLite in sync with what Python's logger prints
+    (both use the local clock).
     """
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         with get_connection() as conn:
             conn.execute("""
-            INSERT INTO sensor_data (temperature, humidity, pressure)
-            VALUES (?, ?, ?)
-            """, (temperature, humidity, pressure))
+            INSERT INTO sensor_data (timestamp, temperature, humidity, pressure)
+            VALUES (?, ?, ?, ?)
+            """, (timestamp, temperature, humidity, pressure))
 
         logger.debug(
-            "Inserted sensor data: T=%.2f H=%.2f P=%.2f",
-            temperature, humidity, pressure
+            "Inserted sensor data @ %s: T=%.2f H=%.2f P=%.2f",
+            timestamp, temperature, humidity, pressure,
         )
         return True
     except Exception as exc:
-        logger.exception("Insert sensor data failed: %s", exc)
+        logger.warning("Insert sensor data failed: %s", exc)
         return False
 
 # get one row from query

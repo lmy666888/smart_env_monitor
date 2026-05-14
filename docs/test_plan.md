@@ -1,46 +1,33 @@
 # Test Plan
 
-The system is exercised through the deployed AWS endpoint and a local
-static frontend. The following manual tests cover the assignment
-requirements.
+The dashboard is the **Flask** app (`python run.py`). It polls **`/api/data`**, which proxies your API Gateway **`/data`** response. The following manual tests assume the stack is running locally (default **http://127.0.0.1:5001**).
 
 ## 1. Happy-path test
 
-1. Run `python3 -m http.server 8000` in `frontend/`.
-2. Open <http://localhost:8000/login.html>, log in with `admin / admin123`.
-3. **Expected**: dashboard renders within ~2 seconds, "System Status"
-   shows *Online*, "Last Fetch Status" shows *OK*, and the temperature,
-   humidity and pressure cards all contain numeric values.
+1. Run `python run.py` (use `export DISABLE_AUTH=1` if you want to skip login).
+2. Open **http://127.0.0.1:5001/login**, sign in with `admin / admin123` when auth is enabled.
+3. **Expected**: dashboard renders, `/api/data` returns 200 in DevTools, readings and chart populate.
 
 ## 2. Threshold warning test
 
-1. Edit `lambda/update_settings.py` invocation or call the settings
-   Lambda with stricter thresholds (e.g. `temp_max = 20`).
+1. Tighten thresholds via **Save to cloud** or call the AWS **`/settings`** Lambda with stricter values (e.g. lower `temp_max`).
 2. Reload the dashboard.
-3. **Expected**: the warning banner turns orange, the warning list
-   contains a "Temperature too high" line and the warning count is
-   non-zero.
+3. **Expected**: warning banner and list reflect threshold violations for the latest cloud reading.
 
 ## 3. Empty `sensor_data` test
 
-1. Temporarily clear the DynamoDB sensor table (or call an endpoint that
-   returns an empty `sensor_data` array).
-2. **Expected**: the banner shows "No sensor readings available from the
-   API.", every reading card shows `--`, the chart stays empty.
+1. Temporarily clear the DynamoDB sensor table (or return an empty `sensor_data` from `/data`).
+2. **Expected**: empty-state / placeholder readings, chart empty or minimal, no uncaught JS errors.
 
 ## 4. Malformed payload test
 
-1. Manually return a reading with `"temperature": "n/a"` in a mock
-   response.
-2. **Expected**: the invalid reading is filtered out by
-   `validateSensorReading`; remaining valid readings still render.
+1. Ingest a reading that fails Lambda validation (e.g. non-numeric temperature).
+2. **Expected**: row rejected at ingest; dashboard still renders prior valid cloud data.
 
 ## 5. Network failure test
 
-1. Disable network or change `API_ENDPOINT` to a bogus URL.
-2. **Expected**: banner turns red with the underlying error message,
-   "System Status" shows *Offline / Error*, but any previously displayed
-   data remains on-screen.
+1. Disable network or set a bogus `AWS_DATA_URL` in `.env`.
+2. **Expected**: error handling in the UI, Flask logs show cloud fetch failures for `/data`.
 
 ## 6. Spike detection test
 
