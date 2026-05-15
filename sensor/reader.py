@@ -12,19 +12,24 @@ Goals (read this first):
   `get_temperature`.
 * Wrap every individual sensor read in its own try/except and fall back
   to a reasonable physical default if that read fails.
-* If the emulator (or real HAT) cannot be initialised at all, switch
-  permanently into a deterministic mock data source so the dashboard,
-  warnings and chart keep working.
+* If the emulator (or real HAT) cannot be initialised at all, the
+  initial backend label is ``mock`` and only mock readings are used.
+* On each poll, when a hardware instance exists, we read **raw** T/H/P from
+  the device with **no** per-field Config fallbacks. If any raw value is
+  missing or the combined triplet fails validation, that **single**
+  reading comes from the mock walker and ``get_sensor_source_name()``
+  returns ``mock`` for that cycle; the next poll tries the device again.
 * Throttle repeated identical errors so the log does not get flooded with
   the same traceback every cycle.
 
-Sources reported via `get_sensor_source_name()`:
+Sources reported via `get_sensor_source_name()` (last completed read):
     - "real_sense_hat" : physical Sense HAT on a Raspberry Pi
     - "sense_emu"      : Sense HAT desktop emulator
-    - "mock"           : built-in random-walk fallback
+    - "mock"           : built-in random-walk fallback (no valid device read this cycle)
 """
 
 import logging
+import os
 import random
 import time
 from datetime import datetime
@@ -69,6 +74,8 @@ SOURCE_UNKNOWN = "unknown"
 _sense_instance: Optional[Any] = None
 _active_source: str = SOURCE_UNKNOWN
 _init_attempted: bool = False
+# Source for the most recent `read_from_emulator()` (per-cycle; reflects mock fallback).
+_last_read_source: Optional[str] = None
 
 # {error_key: monotonic_seconds_of_last_log}
 _last_error_logged_at: Dict[str, float] = {}
@@ -127,10 +134,16 @@ def _init_sense_instance() -> Tuple[Optional[Any], str]:
         return None, SOURCE_MOCK
 
     candidates = []
-    if EMULATOR_IMPORTED:
+    forced = os.environ.get("SENSOR_BACKEND", "").strip().lower()
+    if forced == "sense_emu" and EMULATOR_IMPORTED:
         candidates.append((_EmulatorSenseHat, SOURCE_EMULATOR))
-    if REAL_HAT_IMPORTED:
+    elif forced in ("sense_hat", "real_sense_hat") and REAL_HAT_IMPORTED:
         candidates.append((_RealSenseHat, SOURCE_REAL_HAT))
+    else:
+        if EMULATOR_IMPORTED:
+            candidates.append((_EmulatorSenseHat, SOURCE_EMULATOR))
+        if REAL_HAT_IMPORTED:
+            candidates.append((_RealSenseHat, SOURCE_REAL_HAT))
 
     for cls, label in candidates:
         try:
@@ -160,11 +173,14 @@ def get_sensor_source_name(use_simulation_fallback: bool = False) -> str:
     """
     Return one of: "real_sense_hat", "sense_emu", "mock".
 
-    The `use_simulation_fallback` argument is kept for backwards compatibility
-    with the legacy Flask app; it is currently ignored.
+    After at least one `read_from_emulator()` call, reflects whether that
+    reading came from the device or mock fallback. Before the first read,
+    falls back to the initialised backend label.
     """
     if not _init_attempted:
         get_sense_instance()
+    if _last_read_source is not None:
+        return _last_read_source
     return _active_source
 
 
@@ -223,12 +239,11 @@ def _safe_call(error_key: str, fn: Callable[[], float]) -> Optional[float]:
         return None
 
 
-def _read_temperature(sense: Any) -> float:
+def _raw_temperature(sense: Any) -> Optional[float]:
     """
-    Try multiple temperature methods in order of safety.
+    Raw temperature from the device only (no Config fallbacks).
 
-    `get_temperature_from_pressure` is preferred because it does NOT touch
-    the humidity sensor, so it survives "Humidity Init Failed" errors.
+    Order matches `_read_temperature` safety: pressure-derived T first.
     """
     for method_name in (
         "get_temperature_from_pressure",
@@ -241,41 +256,37 @@ def _read_temperature(sense: Any) -> float:
         value = _safe_call(f"sensor.temperature.{method_name}", fn)
         if value is not None:
             return value
-
     _throttled_warning(
-        "sensor.temperature.fallback",
-        "All temperature methods failed; using fallback %.2f°C",
-        Config.FALLBACK_TEMPERATURE,
+        "sensor.temperature.raw_none",
+        "All temperature methods failed for this poll (no raw value).",
     )
-    return float(Config.FALLBACK_TEMPERATURE)
+    return None
 
 
-def _read_humidity(sense: Any) -> float:
+def _raw_humidity(sense: Any) -> Optional[float]:
     fn = getattr(sense, "get_humidity", None)
     if fn is not None:
         value = _safe_call("sensor.humidity.get_humidity", fn)
         if value is not None:
             return value
     _throttled_warning(
-        "sensor.humidity.fallback",
-        "Humidity read failed; using fallback %.2f%%",
-        Config.FALLBACK_HUMIDITY,
+        "sensor.humidity.raw_none",
+        "Humidity read failed for this poll (no raw value).",
     )
-    return float(Config.FALLBACK_HUMIDITY)
+    return None
 
 
-def _read_pressure(sense: Any) -> float:
+def _raw_pressure(sense: Any) -> Optional[float]:
     fn = getattr(sense, "get_pressure", None)
     if fn is not None:
         value = _safe_call("sensor.pressure.get_pressure", fn)
         if value is not None:
             return value
     _throttled_warning(
-        "sensor.pressure.fallback",
-        "Pressure read failed; using fallback %.2f hPa",
-        Config.FALLBACK_PRESSURE,
+        "sensor.pressure.raw_none",
+        "Pressure read failed for this poll (no raw value).",
     )
-    return float(Config.FALLBACK_PRESSURE)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -304,28 +315,49 @@ def _read_from_mock() -> Dict[str, float]:
 
 def read_from_emulator() -> Optional[Dict[str, float]]:
     """
-    Always returns a normalised reading dict (or None only in truly
-    impossible situations). When the HAT backend is missing or broken,
-    this falls back to the mock source.
+    Each call tries the live Sense HAT / emulator again (cached instance,
+    fresh method calls). Invalid or incomplete raw device reads use mock
+    for this cycle only; the next call attempts the device again.
     """
+    global _last_read_source
+
     sense = get_sense_instance()
     if sense is None:
+        _last_read_source = SOURCE_MOCK
         return _read_from_mock()
 
-    temperature = _read_temperature(sense)
-    humidity = _read_humidity(sense)
-    pressure = _read_pressure(sense)
-    reading = normalize_sensor_values(temperature, humidity, pressure)
+    raw_t = _raw_temperature(sense)
+    raw_h = _raw_humidity(sense)
+    raw_p = _raw_pressure(sense)
+    logger.info(
+        "Raw sense device readings (pre-validation): temperature=%r humidity=%r pressure=%r backend=%s",
+        raw_t,
+        raw_h,
+        raw_p,
+        _active_source,
+    )
 
+    if raw_t is None or raw_h is None or raw_p is None:
+        _throttled_warning(
+            "sensor.raw_incomplete",
+            "Incomplete raw reading (missing channel); using mock for this cycle only.",
+        )
+        _last_read_source = SOURCE_MOCK
+        return _read_from_mock()
+
+    reading = normalize_sensor_values(raw_t, raw_h, raw_p)
     if not validate_sensor_values(
         reading["temperature"], reading["humidity"], reading["pressure"]
     ):
         _throttled_warning(
             "sensor.validation",
-            "Sensor reading out of plausible range %s; using mock fallback",
+            "Sensor reading out of plausible range %s; using mock for this cycle only",
             reading,
         )
+        _last_read_source = SOURCE_MOCK
         return _read_from_mock()
+
+    _last_read_source = _active_source
     return reading
 
 
