@@ -80,26 +80,26 @@ async function fetchData() {
         const response = await fetch("/api/data");
         const data = await response.json();
 
-        if (!response.ok || !data.success) {
-            throw new Error(data.message || "Failed to fetch monitoring data.");
+        if (!response.ok || data.success === false) {
+            const msg = data.message || "Failed to fetch monitoring data.";
+            if (data.fallback_used && data.source === "local_fallback") {
+                showWarningBanner("error", `${msg} (local fallback — AWS unavailable)`);
+                lastSuccessfulPayload = data;
+                applyDashboardPayload(data);
+                updateSystemStatus("Degraded (local fallback)");
+                updateLastUpdateTime(new Date().toLocaleString());
+                return;
+            }
+            throw new Error(
+                data.error_code ? `${msg} [${data.error_code}]` : msg
+            );
         }
 
         lastSuccessfulPayload = data;
 
-        updateSystemStatus("Online");
+        applyDashboardPayload(data);
+        updateSystemStatus(data.source === "aws" ? "Online (AWS Brain)" : "Online");
         updateLastUpdateTime(new Date().toLocaleString());
-        updateSensorSource(data.sensor_source || "--");
-        updateCloudPanels(data);
-
-        const hasPoints = (data.cloud && data.cloud.sensor_points > 0) || (data.latest && data.chart_values && data.chart_values.length);
-        setEmptyStateVisible(!data.latest && !hasPoints);
-
-        updateRealtimeReadings(data.latest);
-        updateWarnings(data.warnings || [], data.warning_status, data.warning_banner);
-        updateAnalysis(data.analysis);
-        updateSettingsForm(data.settings);
-        updateChart(data.chart_labels || [], data.chart_values || [], data.settings);
-        updateRuntime(data.runtime || {});
     } catch (error) {
         console.error("Fetch error:", error);
         updateSystemStatus("Offline / error");
@@ -125,6 +125,25 @@ async function fetchData() {
             setLoading(false);
         }
     }
+}
+
+function applyDashboardPayload(data) {
+    updateSensorSource(data.sensor_source || "--");
+    updateCloudPanels(data);
+
+    const hasPoints =
+        (data.cloud && data.cloud.sensor_points > 0) ||
+        (data.latest && data.chart_values && data.chart_values.length) ||
+        (data.sensor_data && data.sensor_data.length > 0);
+
+    setEmptyStateVisible(!data.latest && !hasPoints);
+
+    updateRealtimeReadings(data.latest);
+    updateWarnings(data.warnings || [], data.warning_status, data.warning_banner);
+    updateAnalysis(data.analysis);
+    updateSettingsForm(data.settings);
+    updateChart(data.chart_labels || [], data.chart_values || [], data.settings);
+    updateRuntime(data.runtime || {});
 }
 
 function updateSystemStatus(statusText) {

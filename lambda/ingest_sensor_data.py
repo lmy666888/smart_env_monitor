@@ -29,7 +29,7 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SmartEnvSensorData")
+SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SensorData")
 
 _dynamodb = boto3.resource("dynamodb")
 

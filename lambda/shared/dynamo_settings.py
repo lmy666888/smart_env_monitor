@@ -15,7 +15,7 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-SETTINGS_TABLE_NAME = os.environ.get("SETTINGS_TABLE_NAME", "SmartEnvSettings")
+SETTINGS_TABLE_NAME = os.environ.get("SETTINGS_TABLE_NAME", "DeviceSettings")
 
 DEFAULT_SETTINGS: Dict[str, float] = {
     "temp_min": 0,

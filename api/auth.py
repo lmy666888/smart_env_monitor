@@ -1,127 +1,206 @@
+"""
+Session management for the Flask dashboard.
+
+Production authentication is performed by AWS ``auth_handler`` (API Gateway
+``POST /login`` and ``POST /register``). Flask stores only the session cookie
+after a successful cloud login — no plaintext passwords are persisted locally.
+"""
+
+from __future__ import annotations
+
 import logging
 from typing import Dict, Optional
+
 from flask import session
 from werkzeug.security import check_password_hash, generate_password_hash
-from config import Config
 
-
+from cloud.client import CloudAPIClient, CloudClientError
+from config import Config, get_config
 
 logger = logging.getLogger("smart_env_monitor.auth")
 
 
-# get admin username
 def get_admin_username() -> str:
-    """return admin username"""
     return str(getattr(Config, "ADMIN_USERNAME", "admin")).strip()
 
-# get plain password (fallback)
+
 def get_admin_password() -> str:
-    """get fallback password"""
-    return str(getattr(Config, "ADMIN_PASSWORD", "admin123"))
+    """Deprecated local fallback password (empty by default)."""
+    return str(getattr(Config, "ADMIN_PASSWORD", ""))
 
 
-
-# get hashed password
 def get_admin_password_hash() -> str:
-    """get password hash"""
     return str(getattr(Config, "ADMIN_PASSWORD_HASH", "")).strip()
 
-# simple config info (no secrets)
+
 def get_auth_config_summary() -> Dict[str, object]:
-    """return auth config info"""
     return {
         "admin_username": get_admin_username(),
         "password_hash_configured": bool(get_admin_password_hash()),
-        "fallback_plain_password_enabled": bool(get_admin_password()),
+        "use_aws_brain": getattr(Config, "USE_AWS_BRAIN", True),
+        "local_auth_fallback": not getattr(Config, "USE_AWS_BRAIN", True),
     }
 
-# check username + password
-def verify_credentials(username: str, password: str) -> bool:
-    """verify login"""
-    username = str(username or "").strip()
-    password = str(password or "")
-    expected_username = get_admin_username()
-    if username != expected_username:
-        logger.warning("Authentication failed: username mismatch.")
-        return False
+
+def _cloud_client() -> CloudAPIClient:
+    return CloudAPIClient(get_config())
 
 
-    password_hash = get_admin_password_hash()
-    # use hash if available
-    if password_hash:
-        try:
-            success = check_password_hash(password_hash, password)
-            if success:
-                logger.info("Authentication succeeded using password hash.")
-            else:
-                logger.warning("Authentication failed: invalid password hash match.")
-            return success
-        except Exception as exc:
-            logger.exception("Password hash verification failed: %s", exc)
-            return False
-    # fallback to plain password
-    fallback_password = get_admin_password()
-    success = password == fallback_password
-
-    if success:
-        logger.info("Authentication succeeded using fallback plain password.")
-    else:
-        logger.warning("Authentication failed: invalid plain password.")
-
-    return success
-
-# set login session
-def login_user(username: str) -> None:
-    """mark user logged in"""
+def login_user(username: str, *, token: Optional[str] = None) -> None:
     session["logged_in"] = True
     session["username"] = str(username).strip()
     session.permanent = True
+    if token:
+        session["aws_token"] = token
+    logger.info("User '%s' logged in (session created after AWS auth).", username)
 
-    logger.info("User '%s' logged in and session created.", username)
 
-
-
-
-# clear session
 def logout_user() -> Optional[str]:
-    """logout user"""
     username = session.get("username")
     session.clear()
-
     if username:
-        logger.info("User '%s' logged out and session cleared.", username)
-    else:
-        logger.info("Anonymous session cleared.")
-
+        logger.info("User '%s' logged out.", username)
     return username
 
-# check login state
+
 def is_logged_in() -> bool:
-    """check logged in"""
     return bool(session.get("logged_in"))
-# get current user
-def get_current_username(default: str = "admin") -> str:
-    """get current username"""
+
+
+def get_current_username(default: str = "") -> str:
     return str(session.get("username", default))
-# login wrapper
+
+
+def verify_credentials_local(username: str, password: str) -> bool:
+    """
+    DEPRECATED — local Flask Brain auth only when USE_AWS_BRAIN=false.
+    """
+    username = str(username or "").strip()
+    password = str(password or "")
+    if username != get_admin_username():
+        return False
+
+    password_hash = get_admin_password_hash()
+    if password_hash:
+        try:
+            return check_password_hash(password_hash, password)
+        except Exception as exc:
+            logger.exception("Password hash verification failed: %s", exc)
+            return False
+
+    fallback_password = get_admin_password()
+    if not fallback_password:
+        return False
+    return password == fallback_password
+
+
 def build_login_result(username: str, password: str) -> Dict[str, object]:
-    """handle login result"""
-    if verify_credentials(username, password):
+    username = str(username or "").strip()
+    password = str(password or "")
+
+    cfg = get_config()
+    if getattr(cfg, "USE_AWS_BRAIN", True):
+        try:
+            result = _cloud_client().post_login({"username": username, "password": password})
+        except CloudClientError as exc:
+            logger.warning("AWS login failed: %s", exc)
+            return {
+                "success": False,
+                "source": "aws",
+                "message": str(exc),
+                "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
+                "fallback_used": False,
+            }
+
+        if result.get("success"):
+            login_user(
+                str(result.get("username") or username),
+                token=result.get("token"),
+            )
+            return {
+                "success": True,
+                "source": "aws",
+                "message": result.get("message", "Login successful."),
+                "username": get_current_username(),
+            }
+
+        return {
+            "success": False,
+            "source": "aws",
+            "message": result.get("message", "Invalid username or password."),
+            "error_code": result.get("error_code"),
+            "fallback_used": False,
+        }
+
+    if verify_credentials_local(username, password):
         login_user(username)
         return {
             "success": True,
-            "message": "Login successful.",
+            "source": "local_fallback",
+            "message": "Login successful (local auth — AWS Brain disabled).",
             "username": get_current_username(),
+            "fallback_used": True,
         }
 
     return {
         "success": False,
+        "source": "local_fallback",
         "message": "Invalid username or password.",
+        "fallback_used": True,
     }
 
 
+def build_register_result(username: str, password: str) -> Dict[str, object]:
+    username = str(username or "").strip()
+    password = str(password or "")
 
-# generate password hash
+    if not username or not password:
+        return {
+            "success": False,
+            "source": "aws",
+            "message": "Username and password are required.",
+        }
+
+    cfg = get_config()
+    if not getattr(cfg, "USE_AWS_BRAIN", True):
+        return {
+            "success": False,
+            "source": "local_fallback",
+            "message": "Registration requires AWS Brain (USE_AWS_BRAIN=true).",
+            "fallback_used": True,
+        }
+
+    try:
+        result = _cloud_client().post_register({"username": username, "password": password})
+    except CloudClientError as exc:
+        return {
+            "success": False,
+            "source": "aws",
+            "message": str(exc),
+            "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
+            "fallback_used": False,
+        }
+
+    if result.get("success"):
+        return {
+            "success": True,
+            "source": "aws",
+            "message": result.get("message", "Registration successful."),
+            "username": result.get("username", username),
+        }
+
+    return {
+        "success": False,
+        "source": "aws",
+        "message": result.get("message", "Registration failed."),
+        "error_code": result.get("error_code"),
+    }
+
+
+def verify_credentials(username: str, password: str) -> bool:
+    """Backward-compatible alias — prefer :func:`build_login_result`."""
+    return bool(build_login_result(username, password).get("success"))
+
+
 def generate_password_hash_for_env(password: str) -> str:
-    """generate hash for env"""
     return generate_password_hash(str(password))

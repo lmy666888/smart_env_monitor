@@ -22,7 +22,7 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SmartEnvSensorData")
+SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SensorData")
 SIM_DEVICE_ID = os.environ.get("SIM_DEVICE_ID", "pi-sim-001")
 
 _dynamodb = boto3.resource("dynamodb")

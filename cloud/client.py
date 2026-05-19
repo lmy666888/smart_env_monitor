@@ -1,31 +1,27 @@
 """
-HTTP client for API Gateway (ingest, dashboard data, settings).
+HTTP client for API Gateway (AWS Brain).
 
-Uses ``requests`` with timeouts, retries on connection errors / selected status codes,
-and structured logging.
+Proxies ingest, dashboard data, settings, authentication, and health checks.
+Uses ``requests`` with timeouts and retries.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from config import Config
+from config import cloud_config
 
 logger = logging.getLogger("smart_env_monitor.cloud.client")
 
 
 class CloudClientError(Exception):
-    """
-    Raised when a cloud API call fails.
-
-    Carries structured fields so Flask can return JSON (not opaque ``Not Found`` text).
-    """
+    """Raised when a cloud API call fails."""
 
     def __init__(
         self,
@@ -45,7 +41,7 @@ class CloudClientError(Exception):
         self.parsed_body = parsed_body
 
     def to_flask_extra(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+        out: Dict[str, Any] = {"source": "aws"}
         if self.error_code:
             out["error_code"] = self.error_code
         if self.status_code is not None:
@@ -74,44 +70,11 @@ def _session(timeout: float, total_retries: int, backoff: float) -> requests.Ses
     sess = requests.Session()
     sess.mount("https://", adapter)
     sess.mount("http://", adapter)
-    sess.headers.update({"Accept": "application/json", "User-Agent": "smart-env-monitor/2.0"})
+    sess.headers.update({"Accept": "application/json", "User-Agent": "smart-env-monitor/3.0-aws-brain"})
     return sess
 
 
-def _normalize_base(url: str) -> str:
-    return (url or "").strip().rstrip("/")
-
-
-def resolve_settings_urls(cfg: type) -> List[str]:
-    """
-    Candidate URLs for /settings (first match wins on non-404 after trying in order).
-
-    Order:
-    1. ``AWS_SETTINGS_URL`` if set and non-empty
-    2. ``{AWS_API_BASE}/settings`` (and ``.../settings/`` stripped)
-    """
-    seen: set[str] = set()
-    out: List[str] = []
-
-    def add(u: str) -> None:
-        u = (u or "").strip()
-        if not u or u in seen:
-            return
-        seen.add(u)
-        out.append(u.rstrip("/"))
-
-    explicit = getattr(cfg, "AWS_SETTINGS_URL", None)
-    if explicit:
-        add(str(explicit))
-
-    base = _normalize_base(str(getattr(cfg, "AWS_API_BASE", "") or ""))
-    if base:
-        add(urljoin(base + "/", "settings"))
-
-    return out
-
-
-def _parse_error_response(resp: requests.Response) -> tuple[Optional[Dict[str, Any]], str]:
+def _parse_error_response(resp: requests.Response) -> Tuple[Optional[Dict[str, Any]], str]:
     text = (resp.text or "").strip()
     try:
         j = resp.json()
@@ -122,11 +85,12 @@ def _parse_error_response(resp: requests.Response) -> tuple[Optional[Dict[str, A
     return None, text
 
 
-def _settings_route_not_found_error(url: str, raw: str, parsed: Optional[Dict[str, Any]], verb: str) -> CloudClientError:
+def _settings_route_not_found_error(
+    url: str, raw: str, parsed: Optional[Dict[str, Any]], verb: str
+) -> CloudClientError:
     return CloudClientError(
         f"AWS returned 404 for {verb} /settings: the route is not deployed on this API Gateway, "
-        "or AWS_SETTINGS_URL is wrong. Add GET and POST routes for `/settings` pointing to "
-        "`settings_handler.lambda_handler` (see infrastructure/httpapi-settings-routes.yaml).",
+        "or AWS_SETTINGS_URL is wrong.",
         status_code=404,
         error_code="AWS_SETTINGS_ROUTE_NOT_FOUND",
         url=url,
@@ -164,13 +128,32 @@ def _raise_settings_http_error(url: str, resp: requests.Response, http_verb: str
     )
 
 
+def resolve_settings_urls(cfg: type) -> List[str]:
+    """Candidate URLs for /settings."""
+    seen: set[str] = set()
+    out: List[str] = []
+
+    def add(u: str) -> None:
+        u = (u or "").strip().rstrip("/")
+        if not u or u in seen:
+            return
+        seen.add(u)
+        out.append(u)
+
+    explicit = getattr(cfg, "AWS_SETTINGS_URL", None)
+    if explicit:
+        add(str(explicit))
+    add(cloud_config.endpoint_url(cloud_config.SETTINGS_ENDPOINT))
+    return out
+
+
 class CloudAPIClient:
-    """Thin service layer over AWS HTTP API endpoints."""
+    """Thin proxy over AWS API Gateway endpoints (authoritative AWS Brain)."""
 
     def __init__(self, config_class: type = Config):
         self._cfg = config_class
         self._session = _session(
-            timeout=config_class.HTTP_TIMEOUT_SECONDS,
+            timeout=float(config_class.HTTP_TIMEOUT_SECONDS),
             total_retries=max(0, int(config_class.HTTP_MAX_RETRIES)),
             backoff=float(config_class.HTTP_RETRY_BACKOFF),
         )
@@ -179,35 +162,96 @@ class CloudAPIClient:
         t = float(self._cfg.HTTP_TIMEOUT_SECONDS)
         return (t, t)
 
+    def _dashboard_timeout(self, timeout: Optional[float]) -> tuple[float, float]:
+        to = float(timeout if timeout is not None else self._cfg.DASHBOARD_CLOUD_TIMEOUT)
+        return (to, to)
+
+    def request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+        error_code: str = "AWS_API_ERROR",
+    ) -> Dict[str, Any]:
+        """
+        Perform HTTP request and return parsed JSON dict.
+
+        Raises CloudClientError on transport failure or non-2xx (unless body is JSON error).
+        """
+        to = self._timeout_tuple() if timeout is None else (float(timeout), float(timeout))
+        try:
+            resp = self._session.request(
+                method.upper(),
+                url,
+                params=params,
+                json=json_body,
+                timeout=to,
+                headers={"Content-Type": "application/json"} if json_body is not None else None,
+            )
+        except requests.RequestException as exc:
+            logger.warning("%s %s failed: %s", method.upper(), url, exc)
+            raise CloudClientError(
+                str(exc),
+                error_code="AWS_API_UNAVAILABLE",
+                url=url,
+            ) from exc
+
+        parsed, raw = _parse_error_response(resp)
+        if not resp.ok:
+            msg = raw or f"HTTP {resp.status_code}"
+            if parsed:
+                msg = str(parsed.get("message") or parsed.get("error") or msg)
+            code = error_code
+            if parsed and parsed.get("error_code"):
+                code = str(parsed["error_code"])
+            raise CloudClientError(
+                msg,
+                status_code=resp.status_code,
+                error_code=code,
+                url=url,
+                response_body=raw,
+                parsed_body=parsed,
+            )
+
+        if parsed is not None:
+            return parsed
+        if not raw:
+            return {}
+        raise CloudClientError(
+            "Invalid JSON from AWS API",
+            error_code="AWS_JSON_ERROR",
+            url=url,
+            response_body=raw,
+        )
+
     def fetch_dashboard_data(
         self,
         device_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """
-        GET /data — returns ``sensor_data`` list and ``settings`` dict.
-
-        Raises CloudClientError on failure.
-        """
-        params = {}
+        """GET /data — authoritative dashboard payload from Lambda."""
+        params: Dict[str, Any] = {}
         if device_id:
             params["device_id"] = device_id
-        url = self._cfg.AWS_DATA_URL
-        to = timeout if timeout is not None else float(self._cfg.DASHBOARD_CLOUD_TIMEOUT)
+        url = getattr(self._cfg, "AWS_DATA_URL", cloud_config.endpoint_url(cloud_config.DATA_ENDPOINT))
         try:
-            resp = self._session.get(url, params=params or None, timeout=(to, to))
+            resp = self._session.get(url, params=params or None, timeout=self._dashboard_timeout(timeout))
         except requests.RequestException as exc:
             logger.warning("Cloud GET /data failed: %s", exc)
-            raise CloudClientError(str(exc), error_code="DATA_TRANSPORT_ERROR", url=url) from exc
+            raise CloudClientError(str(exc), error_code="AWS_API_UNAVAILABLE", url=url) from exc
 
         if not resp.ok:
-            logger.warning("Cloud GET /data HTTP %s: %s", resp.status_code, resp.text[:500])
+            parsed, raw = _parse_error_response(resp)
             raise CloudClientError(
                 f"GET /data failed with HTTP {resp.status_code}",
                 status_code=resp.status_code,
                 error_code="DATA_HTTP_ERROR",
                 url=url,
-                response_body=resp.text,
+                response_body=raw,
+                parsed_body=parsed,
             )
 
         try:
@@ -220,42 +264,33 @@ class CloudAPIClient:
         return data
 
     def post_sensor_reading(self, payload: Dict[str, Any]) -> bool:
-        """
-        POST /ingest with JSON body. Returns True on 2xx.
+        """POST /ingest — returns True on 2xx (collector compatibility)."""
+        result = self.post_ingest(payload)
+        return bool(result.get("success", True))
 
-        Does not raise on network errors — returns False after retries exhausted
-        (urllib3 retry) or on HTTP error.
-        """
-        url = self._cfg.AWS_INGEST_URL
+    def post_ingest(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /ingest — returns parsed AWS JSON body."""
+        url = getattr(self._cfg, "AWS_INGEST_URL", cloud_config.endpoint_url(cloud_config.INGEST_ENDPOINT))
         if not url:
             logger.error("AWS_INGEST_URL is empty; cannot upload.")
-            return False
+            return {"success": False, "message": "Ingest URL not configured.", "error_code": "INGEST_URL_UNCONFIGURED"}
         try:
-            resp = self._session.post(
-                url,
-                json=payload,
-                timeout=self._timeout_tuple(),
-                headers={"Content-Type": "application/json"},
-            )
-        except requests.RequestException as exc:
+            return self.request_json("POST", url, json_body=payload, error_code="INGEST_HTTP_ERROR")
+        except CloudClientError as exc:
             logger.warning("Cloud POST /ingest failed: %s", exc)
-            return False
-
-        if 200 <= resp.status_code < 300:
-            return True
-        logger.warning("Ingest rejected: HTTP %s %s", resp.status_code, resp.text[:300])
-        return False
+            return {
+                "success": False,
+                "message": str(exc),
+                "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
+                "source": "aws",
+            }
 
     def get_settings(self) -> Dict[str, Any]:
-        """
-        GET /settings — returns JSON from AWS (expects ``success`` and ``settings``).
-
-        Tries each URL from :func:`resolve_settings_urls` until one does not return 404.
-        """
+        """GET /settings."""
         urls = resolve_settings_urls(self._cfg)
         if not urls:
             raise CloudClientError(
-                "No settings URL could be built. Set AWS_SETTINGS_URL or AWS_API_BASE.",
+                "No settings URL configured.",
                 error_code="SETTINGS_URL_UNCONFIGURED",
             )
 
@@ -264,16 +299,10 @@ class CloudAPIClient:
             try:
                 resp = self._session.get(url, timeout=self._timeout_tuple())
             except requests.RequestException as exc:
-                last_exc = CloudClientError(
-                    str(exc),
-                    error_code="SETTINGS_TRANSPORT_ERROR",
-                    url=url,
-                )
-                logger.warning("GET %s failed: %s", url, exc)
+                last_exc = CloudClientError(str(exc), error_code="AWS_API_UNAVAILABLE", url=url)
                 continue
 
             if resp.status_code == 404:
-                logger.info("GET settings 404 at %s, trying next candidate.", url)
                 parsed, raw = _parse_error_response(resp)
                 last_exc = _settings_route_not_found_error(url, raw, parsed, "GET")
                 continue
@@ -301,15 +330,11 @@ class CloudAPIClient:
         raise CloudClientError("GET /settings failed", error_code="SETTINGS_UNKNOWN_ERROR")
 
     def post_settings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        POST thresholds to cloud. Tries each candidate URL (explicit then ``/settings`` under API base).
-
-        Returns parsed JSON. Raises CloudClientError on failure.
-        """
+        """POST /settings."""
         urls = resolve_settings_urls(self._cfg)
         if not urls:
             raise CloudClientError(
-                "No settings URL could be built. Set AWS_SETTINGS_URL or AWS_API_BASE.",
+                "No settings URL configured.",
                 error_code="SETTINGS_URL_UNCONFIGURED",
             )
 
@@ -323,16 +348,10 @@ class CloudAPIClient:
                     headers={"Content-Type": "application/json"},
                 )
             except requests.RequestException as exc:
-                last_exc = CloudClientError(
-                    str(exc),
-                    error_code="SETTINGS_TRANSPORT_ERROR",
-                    url=url,
-                )
-                logger.warning("POST %s failed: %s", url, exc)
+                last_exc = CloudClientError(str(exc), error_code="AWS_API_UNAVAILABLE", url=url)
                 continue
 
             if resp.status_code == 404:
-                logger.info("POST settings 404 at %s, trying next candidate.", url)
                 parsed, raw = _parse_error_response(resp)
                 last_exc = _settings_route_not_found_error(url, raw, parsed, "POST")
                 continue
@@ -353,8 +372,26 @@ class CloudAPIClient:
             raise last_exc
         raise CloudClientError("POST /settings failed", error_code="SETTINGS_UNKNOWN_ERROR")
 
+    def post_login(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /login — DynamoDB Users table via auth_handler Lambda."""
+        url = getattr(self._cfg, "AWS_LOGIN_URL", cloud_config.endpoint_url(cloud_config.LOGIN_ENDPOINT))
+        return self.request_json("POST", url, json_body=payload, error_code="LOGIN_HTTP_ERROR")
+
+    def post_register(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /register."""
+        url = getattr(
+            self._cfg,
+            "AWS_REGISTER_URL",
+            cloud_config.endpoint_url(cloud_config.REGISTER_ENDPOINT),
+        )
+        return self.request_json("POST", url, json_body=payload, error_code="REGISTER_HTTP_ERROR")
+
+    def fetch_health(self, timeout: float = 5.0) -> Dict[str, Any]:
+        """GET /health."""
+        url = getattr(self._cfg, "AWS_HEALTH_URL", cloud_config.endpoint_url(cloud_config.HEALTH_ENDPOINT))
+        return self.request_json("GET", url, timeout=timeout, error_code="HEALTH_HTTP_ERROR")
+
     def ping_data_endpoint(self, timeout: float = 3.0) -> bool:
-        """Lightweight connectivity check (GET /data)."""
         try:
             self.fetch_dashboard_data(timeout=timeout)
             return True

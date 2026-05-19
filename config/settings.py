@@ -12,6 +12,8 @@ from typing import Dict
 
 from dotenv import load_dotenv
 
+from config import cloud_config
+
 # Project root: parent of the `config` package directory.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -33,10 +35,7 @@ def _resolve_db_path(name: str) -> str:
 
 
 def _default_api_base() -> str:
-    return os.getenv(
-        "AWS_API_BASE",
-        "https://9jzbd9a34j.execute-api.ap-southeast-2.amazonaws.com",
-    ).rstrip("/")
+    return cloud_config.AWS_API_BASE_URL
 
 
 class Config:
@@ -59,10 +58,15 @@ class Config:
     DB_PATH = _resolve_db_path(DB_NAME)
     USE_SQLITE_CACHE = _to_bool(os.getenv("USE_SQLITE_CACHE"), False)
 
+    # Legacy local-auth env vars (deprecated when USE_AWS_BRAIN=true).
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
     DISABLE_AUTH = _to_bool(os.getenv("DISABLE_AUTH"), False)
+
+    USE_AWS_BRAIN = cloud_config.USE_AWS_BRAIN
+    LOCAL_FALLBACK_ON_AWS_ERROR = cloud_config.LOCAL_FALLBACK_ON_AWS_ERROR
+    AWS_REGION = cloud_config.AWS_REGION
 
     USE_SIMULATION = _to_bool(os.getenv("USE_SIMULATION"), False)
     USE_MOCK_SENSOR = _to_bool(os.getenv("USE_MOCK_SENSOR"), False)
@@ -81,20 +85,21 @@ class Config:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
     LOG_THROTTLE_SECONDS = int(os.getenv("LOG_THROTTLE_SECONDS", "60"))
 
-    # --- AWS HTTP API (API Gateway) ---
+    # --- AWS HTTP API (API Gateway) — see config/cloud_config.py ---
     AWS_API_BASE = _default_api_base()
-    AWS_INGEST_URL = os.getenv(
-        "AWS_INGEST_URL",
-        f"{_default_api_base()}/ingest",
-    )
-    AWS_DATA_URL = os.getenv(
-        "AWS_DATA_URL",
-        f"{_default_api_base()}/data",
-    )
+    AWS_INGEST_URL = os.getenv("AWS_INGEST_URL", cloud_config.endpoint_url(cloud_config.INGEST_ENDPOINT))
+    AWS_DATA_URL = os.getenv("AWS_DATA_URL", cloud_config.endpoint_url(cloud_config.DATA_ENDPOINT))
     AWS_SETTINGS_URL = os.getenv(
         "AWS_SETTINGS_URL",
-        f"{_default_api_base()}/settings",
+        cloud_config.endpoint_url(cloud_config.SETTINGS_ENDPOINT),
     )
+    AWS_LOGIN_URL = os.getenv("AWS_LOGIN_URL", cloud_config.endpoint_url(cloud_config.LOGIN_ENDPOINT))
+    AWS_REGISTER_URL = os.getenv(
+        "AWS_REGISTER_URL",
+        cloud_config.endpoint_url(cloud_config.REGISTER_ENDPOINT),
+    )
+    AWS_HEALTH_URL = os.getenv("AWS_HEALTH_URL", cloud_config.endpoint_url(cloud_config.HEALTH_ENDPOINT))
+    CLOUD_TIMEOUT_SECONDS = cloud_config.CLOUD_TIMEOUT_SECONDS
 
     DEVICE_ID = os.getenv("DEVICE_ID", "pi-001")
 
@@ -108,13 +113,13 @@ class Config:
         "pressure_max": 1030,
     }
 
-    # HTTP client defaults
-    HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "12"))
+    # HTTP client defaults (alias cloud timeout unless overridden)
+    HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", str(cloud_config.CLOUD_TIMEOUT_SECONDS)))
     HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
     HTTP_RETRY_BACKOFF = float(os.getenv("HTTP_RETRY_BACKOFF", "0.6"))
 
     # Dashboard polling (browser → Flask `/api/data`, which calls AWS).
-    DASHBOARD_CLOUD_TIMEOUT = float(os.getenv("DASHBOARD_CLOUD_TIMEOUT", "15"))
+    DASHBOARD_CLOUD_TIMEOUT = cloud_config.DASHBOARD_CLOUD_TIMEOUT
 
     @classmethod
     def is_desktop_platform(cls) -> bool:
@@ -143,6 +148,8 @@ class Config:
             "AWS_API_BASE": cls.AWS_API_BASE,
             "AWS_DATA_URL": cls.AWS_DATA_URL,
             "AWS_INGEST_URL": cls.AWS_INGEST_URL,
+            "AWS_LOGIN_URL": cls.AWS_LOGIN_URL,
+            "USE_AWS_BRAIN": cls.USE_AWS_BRAIN,
             "DEVICE_ID": cls.DEVICE_ID,
         }
 

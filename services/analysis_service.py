@@ -1,3 +1,10 @@
+"""
+DEPRECATED for production dashboard paths.
+
+Trend/spike/prediction in production are computed by AWS Lambda
+``get_dashboard_data`` (see ``lambda/shared/analysis_service.py``).
+This module is used only by :mod:`services.local_fallback` when AWS is down.
+"""
 
 import logging
 from typing import Dict, List, Any, Optional

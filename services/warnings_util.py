@@ -1,3 +1,10 @@
+"""
+DEPRECATED for production dashboard paths.
+
+Warnings in production come from AWS Lambda ``get_dashboard_data``.
+Used only by :mod:`services.local_fallback` when AWS is unreachable.
+"""
+
 from typing import Any, Dict, List
 
 # generate warnings based on values

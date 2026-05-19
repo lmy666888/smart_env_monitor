@@ -10,7 +10,7 @@
     <main class="login-page">
         <div class="login-card">
             <h1>Smart Environment Monitoring System</h1>
-            <p class="subtitle">Administrator Login</p>
+            <p class="subtitle">Sign in (AWS DynamoDB Users)</p>
 
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -24,22 +24,65 @@
                 <div class="warning-banner error">{{ error }}</div>
             {% endif %}
 
-            <form method="POST" action="{{ url_for('pages.login') }}" class="settings-form">
+            <form method="POST" action="{{ url_for('pages.login') }}" class="settings-form" id="loginForm">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input id="username" name="username" type="text" required autofocus>
+                    <input id="username" name="username" type="text" required autofocus autocomplete="username">
 
                     <label for="password">Password</label>
-                    <input id="password" name="password" type="password" required>
+                    <input id="password" name="password" type="password" required autocomplete="current-password">
                 </div>
 
                 <button type="submit">Login</button>
             </form>
 
-            <p class="card-note" style="margin-top:16px;">
-                Demo credentials: <code>admin</code> / <code>admin123</code>
-            </p>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;">
+
+            <h2 style="font-size: 1.1rem; margin-bottom: 8px;">Create account</h2>
+            <p class="card-note">Registration is stored in AWS DynamoDB via API Gateway <code>POST /register</code>.</p>
+            <form id="registerForm" class="settings-form">
+                <div class="form-group">
+                    <label for="reg_username">Username</label>
+                    <input id="reg_username" name="username" type="text" required minlength="3" autocomplete="username">
+
+                    <label for="reg_password">Password</label>
+                    <input id="reg_password" name="password" type="password" required minlength="6" autocomplete="new-password">
+                </div>
+                <button type="submit" id="registerBtn">Register</button>
+            </form>
+            <p id="registerMessage" class="form-message"></p>
         </div>
     </main>
+    <script>
+        document.getElementById("registerForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById("registerMessage");
+            const btn = document.getElementById("registerBtn");
+            btn.disabled = true;
+            msg.textContent = "Registering…";
+            msg.className = "form-message";
+            try {
+                const res = await fetch("/api/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: document.getElementById("reg_username").value,
+                        password: document.getElementById("reg_password").value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || "Registration failed.");
+                }
+                msg.textContent = data.message || "Registered. You can log in now.";
+                msg.classList.add("success");
+            } catch (err) {
+                msg.textContent = err.message;
+                msg.classList.add("error");
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
 </body>
 </html>
