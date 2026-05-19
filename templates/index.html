@@ -51,9 +51,9 @@
                 <span class="status-hint">Reachability of AWS data endpoint</span>
             </div>
             <div class="card status-card">
-                <span class="status-label">DynamoDB (inferred)</span>
+                <span class="status-label">Cloud Data Freshness</span>
                 <span id="dynamoStatus" class="status-value">--</span>
-                <span class="status-hint">Last successful ingest HTTP 2xx</span>
+                <span class="status-hint">Based on latest.timestamp from AWS /data</span>
             </div>
             <div class="card status-card">
                 <span class="status-label">Sensor backend</span>
@@ -191,23 +191,23 @@
                     <div class="form-group">
                         <h3>Temperature</h3>
                         <label for="temp_min">Minimum (°C)</label>
-                        <input type="number" step="0.1" id="temp_min" name="temp_min" required>
+                        <input type="number" step="0.1" id="temp_min" name="temp_min" min="0" max="50" required>
                         <label for="temp_max">Maximum (°C)</label>
-                        <input type="number" step="0.1" id="temp_max" name="temp_max" required>
+                        <input type="number" step="0.1" id="temp_max" name="temp_max" min="0" max="50" required>
                     </div>
                     <div class="form-group">
                         <h3>Humidity</h3>
                         <label for="humidity_min">Minimum (%)</label>
-                        <input type="number" step="0.1" id="humidity_min" name="humidity_min" required>
+                        <input type="number" step="0.1" id="humidity_min" name="humidity_min" min="0" max="100" required>
                         <label for="humidity_max">Maximum (%)</label>
-                        <input type="number" step="0.1" id="humidity_max" name="humidity_max" required>
+                        <input type="number" step="0.1" id="humidity_max" name="humidity_max" min="0" max="100" required>
                     </div>
                     <div class="form-group">
                         <h3>Pressure</h3>
                         <label for="pressure_min">Minimum (hPa)</label>
-                        <input type="number" step="0.1" id="pressure_min" name="pressure_min" required>
+                        <input type="number" step="0.1" id="pressure_min" name="pressure_min" min="900" max="1100" required>
                         <label for="pressure_max">Maximum (hPa)</label>
-                        <input type="number" step="0.1" id="pressure_max" name="pressure_max" required>
+                        <input type="number" step="0.1" id="pressure_max" name="pressure_max" min="900" max="1100" required>
                     </div>
                     <button id="settingsSubmitBtn" type="submit">Save to cloud</button>
                 </form>

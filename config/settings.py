@@ -67,6 +67,8 @@ class Config:
     USE_AWS_BRAIN = cloud_config.USE_AWS_BRAIN
     LOCAL_FALLBACK_ON_AWS_ERROR = cloud_config.LOCAL_FALLBACK_ON_AWS_ERROR
     ENABLE_BACKGROUND_COLLECTOR = cloud_config.ENABLE_BACKGROUND_COLLECTOR
+    DEMO_MODE = cloud_config.DEMO_MODE
+    MOCK_UPLOAD_ENABLED = cloud_config.MOCK_UPLOAD_ENABLED
     AWS_REGION = cloud_config.AWS_REGION
 
     USE_SIMULATION = _to_bool(os.getenv("USE_SIMULATION"), False)
@@ -152,6 +154,8 @@ class Config:
             "AWS_LOGIN_URL": cls.AWS_LOGIN_URL,
             "USE_AWS_BRAIN": cls.USE_AWS_BRAIN,
             "ENABLE_BACKGROUND_COLLECTOR": cls.ENABLE_BACKGROUND_COLLECTOR,
+            "DEMO_MODE": cls.DEMO_MODE,
+            "MOCK_UPLOAD_ENABLED": cls.MOCK_UPLOAD_ENABLED,
             "DEVICE_ID": cls.DEVICE_ID,
         }
 

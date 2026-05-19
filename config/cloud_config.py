@@ -58,6 +58,16 @@ ENABLE_BACKGROUND_COLLECTOR = os.getenv("ENABLE_BACKGROUND_COLLECTOR", "false").
     "on",
 }
 
+# Explicit demo/mock cloud uploads (MacBook). When false, Flask reader must not
+# silently substitute mock readings for failed emulator reads.
+DEMO_MODE = os.getenv("DEMO_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
+MOCK_UPLOAD_ENABLED = os.getenv("MOCK_UPLOAD_ENABLED", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 
 def endpoint_url(path: str) -> str:
     """Build full URL for an API Gateway path (leading slash required)."""

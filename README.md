@@ -160,6 +160,16 @@ Verify in logs:
 - Flask: `[DEBUG] /api/data returning sensor_backend=sense_emu`
 - Dashboard **Sensor Backend:** `Sense HAT Emulator via AWS Cloud`
 
+### MacBook mock demo uploader (explicit only)
+
+Does **not** use Sense HAT Emulator. Posts `source=mock_demo` to AWS.
+
+```bash
+DEMO_MODE=true MOCK_UPLOAD_ENABLED=true python3 device/mock_uploader.py
+```
+
+Flask must **not** silently upload mock data when these flags are false (see `sensor/reader.py`).
+
 ### Optional: Flask background collector
 
 ```bash

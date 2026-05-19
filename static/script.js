@@ -44,9 +44,53 @@ function updateOverallLevel(level) {
     el.classList.add("status-pill", level === "critical" ? "critical" : level || "normal");
 }
 
+const CLOUD_FRESHNESS_RECENT_SECONDS = 30;
+
+function parseCloudTimestamp(value) {
+    if (!value) return null;
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatCloudAge(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return `${s} second${s === 1 ? "" : "s"} ago`;
+    const m = Math.round(s / 60);
+    return `${m} minute${m === 1 ? "" : "s"} ago`;
+}
+
+function updateCloudFreshnessStatus(latest) {
+    const dynamoEl = document.getElementById("dynamoStatus");
+    if (!dynamoEl) return;
+
+    dynamoEl.classList.remove("text-ok", "text-warn", "text-bad");
+
+    if (!latest || !latest.timestamp) {
+        dynamoEl.textContent = "No cloud data timestamp available";
+        dynamoEl.classList.add("text-bad");
+        return;
+    }
+
+    const readAt = parseCloudTimestamp(latest.timestamp);
+    if (!readAt) {
+        dynamoEl.textContent = "No cloud data timestamp available";
+        dynamoEl.classList.add("text-bad");
+        return;
+    }
+
+    const ageSec = (Date.now() - readAt.getTime()) / 1000;
+    if (ageSec <= CLOUD_FRESHNESS_RECENT_SECONDS) {
+        dynamoEl.textContent = "Recent cloud write detected";
+        dynamoEl.classList.add("text-ok");
+        return;
+    }
+
+    dynamoEl.textContent = `Cloud data available, but not recent. Last update: ${formatCloudAge(ageSec)}`;
+    dynamoEl.classList.add("text-warn");
+}
+
 function updateCloudPanels(data) {
     const rt = data.runtime || {};
-    const cloud = data.cloud || {};
 
     const fetchOk = rt.cloud_api_reachable === true;
     const cloudEl = document.getElementById("cloudApiStatus");
@@ -56,13 +100,7 @@ function updateCloudPanels(data) {
         cloudEl.classList.toggle("text-bad", !fetchOk);
     }
 
-    const dynamoEl = document.getElementById("dynamoStatus");
-    if (dynamoEl) {
-        const ok = rt.dynamodb_indicated_ok === true;
-        dynamoEl.textContent = ok ? "Writes OK" : "Unknown / no recent write";
-        dynamoEl.classList.toggle("text-ok", ok);
-        dynamoEl.classList.toggle("text-warn", !ok);
-    }
+    updateCloudFreshnessStatus(data.latest);
 
     const lastFetch = document.getElementById("lastCloudFetch");
     if (lastFetch) lastFetch.textContent = formatDisplayTime(rt.last_cloud_fetch_success_at);
@@ -159,6 +197,8 @@ function formatSensorSourceValue(raw) {
         sense_emu: "Sense HAT Emulator",
         real_sense_hat: "Real Sense HAT",
         mock: "Mock / Fallback",
+        mock_demo: "Mock Demo Data",
+        mac_mock: "Mock Demo Data",
         unknown: "Unknown",
         aws: "AWS Cloud",
         cloud: "AWS Cloud"
@@ -170,24 +210,28 @@ function formatSensorSourceValue(raw) {
 function resolveSensorBackendLabel(data) {
     if (!data || typeof data !== "object") return "--";
 
-    const isCloud =
-        data.data_source === "CLOUD" ||
-        data.source === "aws" ||
-        (data.cloud && data.cloud.data_source === "CLOUD");
-
     const raw =
         data.sensor_backend ||
         (data.latest && data.latest.source) ||
         data.sensor_source ||
         "unknown";
+    const key = String(raw).trim().toLowerCase();
+
+    if (key === "sense_emu") {
+        return "Sense HAT Emulator via AWS";
+    }
+    if (key === "mock_demo" || key === "mac_mock") {
+        return "Mock Demo Data via AWS";
+    }
+
+    const isCloud =
+        data.data_source === "CLOUD" ||
+        data.source === "aws" ||
+        (data.cloud && data.cloud.data_source === "CLOUD");
 
     const friendly = formatSensorSourceValue(raw);
-
-    if (isCloud && raw && raw !== "mock" && raw !== "unknown") {
-        return `${friendly} via AWS Cloud`;
-    }
     if (isCloud) {
-        return `AWS Cloud (${friendly})`;
+        return `${friendly} via AWS`;
     }
     return friendly;
 }

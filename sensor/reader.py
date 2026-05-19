@@ -293,6 +293,13 @@ def _raw_pressure(sense: Any) -> Optional[float]:
 # Mock source (random walk near plausible values)
 # ---------------------------------------------------------------------------
 
+def _mock_upload_allowed() -> bool:
+    """True only when explicit demo env flags permit mock sensor substitution."""
+    return bool(getattr(Config, "DEMO_MODE", False)) and bool(
+        getattr(Config, "MOCK_UPLOAD_ENABLED", False)
+    )
+
+
 def _read_from_mock() -> Dict[str, float]:
     """Return one mock reading using a smooth random walk."""
     _mock_state["temperature"] += random.uniform(-0.3, 0.3)
@@ -323,8 +330,15 @@ def read_from_emulator() -> Optional[Dict[str, float]]:
 
     sense = get_sense_instance()
     if sense is None:
-        _last_read_source = SOURCE_MOCK
-        return _read_from_mock()
+        if _mock_upload_allowed():
+            _last_read_source = SOURCE_MOCK
+            return _read_from_mock()
+        _last_read_source = SOURCE_UNKNOWN
+        logger.warning(
+            "No Sense device available; mock fallback disabled (set DEMO_MODE=true "
+            "and MOCK_UPLOAD_ENABLED=true for demo uploads, or use device/mock_uploader.py)."
+        )
+        return None
 
     raw_t = _raw_temperature(sense)
     raw_h = _raw_humidity(sense)
@@ -340,10 +354,13 @@ def read_from_emulator() -> Optional[Dict[str, float]]:
     if raw_t is None or raw_h is None or raw_p is None:
         _throttled_warning(
             "sensor.raw_incomplete",
-            "Incomplete raw reading (missing channel); using mock for this cycle only.",
+            "Incomplete raw reading (missing channel); mock fallback disabled unless demo mode.",
         )
-        _last_read_source = SOURCE_MOCK
-        return _read_from_mock()
+        if _mock_upload_allowed():
+            _last_read_source = SOURCE_MOCK
+            return _read_from_mock()
+        _last_read_source = SOURCE_UNKNOWN
+        return None
 
     reading = normalize_sensor_values(raw_t, raw_h, raw_p)
     if not validate_sensor_values(
@@ -351,11 +368,14 @@ def read_from_emulator() -> Optional[Dict[str, float]]:
     ):
         _throttled_warning(
             "sensor.validation",
-            "Sensor reading out of plausible range %s; using mock for this cycle only",
+            "Sensor reading out of plausible range %s; mock fallback disabled unless demo mode.",
             reading,
         )
-        _last_read_source = SOURCE_MOCK
-        return _read_from_mock()
+        if _mock_upload_allowed():
+            _last_read_source = SOURCE_MOCK
+            return _read_from_mock()
+        _last_read_source = SOURCE_UNKNOWN
+        return None
 
     _last_read_source = _active_source
     return reading
