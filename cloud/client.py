@@ -285,8 +285,8 @@ class CloudAPIClient:
                 "source": "aws",
             }
 
-    def get_settings(self) -> Dict[str, Any]:
-        """GET /settings."""
+    def get_settings(self, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """GET /settings for a device (query ``device_id``, default from config)."""
         urls = resolve_settings_urls(self._cfg)
         if not urls:
             raise CloudClientError(
@@ -294,10 +294,13 @@ class CloudAPIClient:
                 error_code="SETTINGS_URL_UNCONFIGURED",
             )
 
+        did = device_id or getattr(self._cfg, "DEVICE_ID", "pi-001")
+        params = {"device_id": did}
+
         last_exc: Optional[CloudClientError] = None
         for url in urls:
             try:
-                resp = self._session.get(url, timeout=self._timeout_tuple())
+                resp = self._session.get(url, params=params, timeout=self._timeout_tuple())
             except requests.RequestException as exc:
                 last_exc = CloudClientError(str(exc), error_code="AWS_API_UNAVAILABLE", url=url)
                 continue
@@ -329,8 +332,10 @@ class CloudAPIClient:
             raise last_exc
         raise CloudClientError("GET /settings failed", error_code="SETTINGS_UNKNOWN_ERROR")
 
-    def post_settings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """POST /settings."""
+    def post_settings(self, payload: Dict[str, Any], device_id: Optional[str] = None) -> Dict[str, Any]:
+        """POST /settings for a device (includes ``device_id`` in JSON body)."""
+        body = dict(payload)
+        body.setdefault("device_id", device_id or getattr(self._cfg, "DEVICE_ID", "pi-001"))
         urls = resolve_settings_urls(self._cfg)
         if not urls:
             raise CloudClientError(
@@ -343,7 +348,7 @@ class CloudAPIClient:
             try:
                 resp = self._session.post(
                     url,
-                    json=payload,
+                    json=body,
                     timeout=self._timeout_tuple(),
                     headers={"Content-Type": "application/json"},
                 )

@@ -133,6 +133,10 @@ def build_local_fallback_payload(
     return {
         "success": False,
         "source": "local_fallback",
+        "data_source": "LOCAL_FALLBACK",
+        "analysis_source": "local_fallback",
+        "warnings_source": "local_fallback",
+        "settings_source": "local_fallback",
         "fallback_used": True,
         "error_code": "AWS_API_UNAVAILABLE",
         "message": error_message,

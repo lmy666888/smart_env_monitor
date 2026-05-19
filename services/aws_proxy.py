@@ -1,13 +1,14 @@
 """
 AWS Brain proxy: pass through GET /data from API Gateway with minimal Flask metadata.
 
-Warnings, trend analysis, spike detection, and predictions must come from Lambda
-(``get_dashboard_data``). This module only adds presentation fields (charts)
-and local runtime indicators (sensor source, upload worker).
+Warnings, trend analysis, spike detection, and predictions come from Lambda
+``get_dashboard_data`` when present; otherwise computed via ``lambda/shared``
+(same code path as Lambda, NOT ``services/analysis_service``).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,8 @@ from config import get_config
 from legacy.display_service import get_display_status
 from sensor import runtime as rt
 from sensor.reader import get_sensor_source_name
+from services.cloud_brain import cloud_payload_has_brain_fields, enrich_cloud_dashboard_payload
+from services.settings_normalize import normalize_settings_dict
 
 logger = logging.getLogger("smart_env_monitor.services.aws_proxy")
 
@@ -53,6 +56,7 @@ def _merge_runtime_metadata(payload: Dict[str, Any], cfg_class: type) -> None:
             "ingest_url_configured": bool(getattr(cfg_class, "AWS_INGEST_URL", "")),
             "last_fetch_ok": rt.runtime_state.get("cloud_api_reachable"),
             "sensor_points": len(_normalise_sensor_list(payload.get("sensor_data"))),
+            "data_source": "CLOUD",
         },
     )
     latest = payload.get("latest")
@@ -64,25 +68,69 @@ def _merge_runtime_metadata(payload: Dict[str, Any], cfg_class: type) -> None:
             payload["display_status"] = {"text": "DISPLAY OFF"}
 
 
+def _log_dashboard_debug(
+    payload: Dict[str, Any],
+    *,
+    cloud_raw_keys: List[str],
+    device_id: Optional[str],
+) -> None:
+    """Structured debug line for verifying CLOUD vs backfill path."""
+    settings = payload.get("settings") or {}
+    analysis = payload.get("analysis") or {}
+    warnings = payload.get("warnings") or []
+    logger.info(
+        "[DEBUG] /api/data source=CLOUD device_id=%s aws_keys=%s "
+        "settings_source=%s analysis_source=%s warnings_source=%s "
+        "settings=%s latest.temp=%s warnings=%s analysis=%s",
+        device_id or "—",
+        cloud_raw_keys,
+        payload.get("settings_source", "?"),
+        payload.get("analysis_source", "?"),
+        payload.get("warnings_source", "?"),
+        {k: settings.get(k) for k in ("temp_min", "temp_max", "humidity_min", "humidity_max")},
+        (payload.get("latest") or {}).get("temperature"),
+        warnings,
+        {k: analysis.get(k) for k in ("spike_drop", "trend", "prediction")},
+    )
+    if getattr(get_config(), "DEBUG", False):
+        logger.debug(
+            "[DEBUG] full AWS /data payload snapshot: %s",
+            json.dumps(
+                {
+                    "settings": payload.get("settings"),
+                    "warnings": warnings,
+                    "warning_status": payload.get("warning_status"),
+                    "analysis": analysis,
+                },
+                default=str,
+            )[:2000],
+        )
+
+
 def build_aws_dashboard_response(
     app,
     cloud_client: CloudAPIClient,
     device_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Fetch GET /data from AWS and return payload unchanged for brain fields.
-
-    Does not recompute warnings, warning_status, or analysis when AWS provides them.
+    Fetch GET /data from AWS; enrich with lambda/shared brain fields when needed.
     """
     cfg_class = app.config.get("CONFIG_CLASS", get_config())
+    sensor_interval = int(
+        app.config.get("SENSOR_INTERVAL", getattr(cfg_class, "SENSOR_INTERVAL", 5))
+    )
 
     cloud_raw = cloud_client.fetch_dashboard_data(device_id=device_id)
     rt.mark_cloud_fetch(True)
+
+    cloud_raw_keys = list(cloud_raw.keys()) if isinstance(cloud_raw, dict) else []
+    had_brain_on_wire = cloud_payload_has_brain_fields(cloud_raw) if isinstance(cloud_raw, dict) else False
 
     payload: Dict[str, Any] = dict(cloud_raw)
     payload["success"] = bool(payload.get("success", True))
     payload["source"] = "aws"
     payload["fallback_used"] = False
+    payload["data_source"] = "CLOUD"
 
     sensor_list = _normalise_sensor_list(payload.get("sensor_data"))
     payload["sensor_data"] = sensor_list
@@ -92,10 +140,31 @@ def build_aws_dashboard_response(
 
     settings = payload.get("settings")
     if isinstance(settings, dict):
-        rt.runtime_state["settings_cache"] = settings
+        normalized = normalize_settings_dict(settings)
+        if normalized:
+            payload["settings"] = normalized
+            rt.runtime_state["settings_cache"] = normalized
+        else:
+            rt.runtime_state["settings_cache"] = settings
+
+    # Recompute brain fields when Lambda response is legacy/minimal or settings stale.
+    force_recompute = not had_brain_on_wire or payload.get("settings_source") == "settings_cache_merge"
+    enrich_cloud_dashboard_payload(
+        payload,
+        settings_cache=rt.runtime_state.get("settings_cache"),
+        sensor_interval=sensor_interval,
+        force_recompute=not had_brain_on_wire,
+    )
+
+    if had_brain_on_wire and payload.get("settings_source") != "settings_cache_merge":
+        payload.setdefault("analysis_source", "aws_lambda")
+        payload.setdefault("warnings_source", "aws_lambda")
+        payload.setdefault("settings_source", "aws_lambda")
 
     _ensure_chart_fields(payload, sensor_list)
     _merge_runtime_metadata(payload, cfg_class)
+
+    _log_dashboard_debug(payload, cloud_raw_keys=cloud_raw_keys, device_id=device_id)
 
     return payload
 
@@ -105,6 +174,7 @@ def aws_unavailable_error(exc: CloudClientError) -> Dict[str, Any]:
     return {
         "success": False,
         "source": "aws",
+        "data_source": "AWS_ERROR",
         "fallback_used": False,
         "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
         "message": str(exc),

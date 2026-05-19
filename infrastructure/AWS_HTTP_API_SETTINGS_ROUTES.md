@@ -15,7 +15,7 @@ Handler string: **`settings_handler.lambda_handler`**
 
 Environment variables (match your other Lambdas):
 
-- `SETTINGS_TABLE_NAME` — DynamoDB table with partition key `id` (string), row `global` for thresholds.
+- `SETTINGS_TABLE_NAME` — DynamoDB **DeviceSettings** table with partition key **`device_id`** (string), e.g. `pi-001`.
 
 ## CloudFormation (HTTP API v2)
 

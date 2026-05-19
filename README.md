@@ -90,7 +90,7 @@ Errors return `success: false`, `source: "aws"`, `error_code`, and `fallback_use
 | Table | Key | Purpose |
 |-------|-----|---------|
 | **SensorData** | `device_id` + `timestamp` | All sensor readings (SoT) |
-| **DeviceSettings** | `id` = `global` | Threshold min/max |
+| **DeviceSettings** | `device_id` = `pi-001` (env `DEVICE_ID`) | Threshold min/max |
 | **Users** | `username` | `email`, `password_hash` (Werkzeug) for login/register |
 
 ---

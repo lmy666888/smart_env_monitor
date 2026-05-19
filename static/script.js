@@ -2,6 +2,8 @@ let chart = null;
 let isSettingsFormDirty = false;
 let lastSuccessfulPayload = null;
 let firstLoadComplete = false;
+/** After Save to cloud, ignore stale settings from /api/data polls briefly. */
+let settingsPinnedUntil = 0;
 
 function formatDisplayTime(value) {
     if (!value) return "--";
@@ -97,8 +99,27 @@ async function fetchData() {
 
         lastSuccessfulPayload = data;
 
+        if (data.data_source || data.analysis_source || data.settings_source) {
+            console.debug("[DEBUG] /api/data", {
+                data_source: data.data_source || data.source,
+                settings_source: data.settings_source,
+                analysis_source: data.analysis_source,
+                warnings_source: data.warnings_source,
+                settings: data.settings,
+                warnings: data.warnings,
+                warning_status: data.warning_status,
+                analysis: data.analysis
+            });
+        }
+
         applyDashboardPayload(data);
-        updateSystemStatus(data.source === "aws" ? "Online (AWS Brain)" : "Online");
+        const statusLabel =
+            data.data_source === "LOCAL_FALLBACK"
+                ? "Degraded (local fallback)"
+                : data.source === "aws"
+                  ? "Online (AWS Brain)"
+                  : "Online";
+        updateSystemStatus(statusLabel);
         updateLastUpdateTime(new Date().toLocaleString());
     } catch (error) {
         console.error("Fetch error:", error);
@@ -108,6 +129,10 @@ async function fetchData() {
             cloud: {}
         });
         showWarningBanner("error", "Failed to load monitoring data from the server.");
+        updateBrainSourceDisplay(
+            { success: false, message: "Failed to load monitoring data from the server." },
+            []
+        );
 
         if (!lastSuccessfulPayload) {
             renderWarnings(["Unable to retrieve warning data."]);
@@ -131,6 +156,9 @@ function applyDashboardPayload(data) {
     updateSensorSource(data.sensor_source || "--");
     updateCloudPanels(data);
 
+    const cloudWarnings = extractCloudWarnings(data);
+    updateBrainSourceDisplay(data, cloudWarnings);
+
     const hasPoints =
         (data.cloud && data.cloud.sensor_points > 0) ||
         (data.latest && data.chart_values && data.chart_values.length) ||
@@ -139,7 +167,12 @@ function applyDashboardPayload(data) {
     setEmptyStateVisible(!data.latest && !hasPoints);
 
     updateRealtimeReadings(data.latest);
-    updateWarnings(data.warnings || [], data.warning_status, data.warning_banner);
+    const authWarnings = getAuthoritativeWarnings(data);
+    const statusBannerText =
+        authWarnings.length > 0
+            ? authWarnings.join(" | ")
+            : data.warning_banner;
+    updateWarnings(cloudWarnings, data.warning_status, statusBannerText);
     updateAnalysis(data.analysis);
     updateSettingsForm(data.settings);
     updateChart(data.chart_labels || [], data.chart_values || [], data.settings);
@@ -183,23 +216,185 @@ function updateRealtimeReadings(latest) {
     timestampEl.textContent = latest.timestamp || "--";
 }
 
-function updateWarnings(warnings, warningStatus, warningBanner) {
-    const countEl = document.getElementById("warningCount");
-    if (countEl) {
-        countEl.textContent = warningStatus?.count ?? warnings.length ?? 0;
+/**
+ * AWS GET /data schema is authoritative for dashboard warnings (data.warnings, data.warning_status).
+ * Legacy Flask fields (warning_info, warning_message, local_warning) are deprecated fallbacks only.
+ */
+function extractCloudWarnings(data) {
+    if (!data || typeof data !== "object") return [];
+
+    try {
+        const primary = data.warnings;
+        if (Array.isArray(primary) && primary.length > 0) {
+            return normalizeWarningStrings(primary);
+        }
+        if (typeof primary === "string" && primary.trim()) {
+            return [primary.trim()];
+        }
+
+        const status = data.warning_status;
+        if (status && Array.isArray(status.messages) && status.messages.length > 0) {
+            return normalizeWarningStrings(status.messages);
+        }
+
+        // Deprecated local/Flask fields — kept for backward compatibility with older payloads.
+        const legacy =
+            data.warning_info ||
+            data.warning_message ||
+            data.local_warning ||
+            (data.analysis && data.analysis.warning_info);
+        if (Array.isArray(legacy) && legacy.length > 0) {
+            return normalizeWarningStrings(legacy);
+        }
+        if (typeof legacy === "string" && legacy.trim()) {
+            return [legacy.trim()];
+        }
+    } catch {
+        return [];
     }
 
-    const level = warningStatus?.level || (warnings.length > 0 ? "warning" : "normal");
+    return [];
+}
+
+function normalizeWarningStrings(items) {
+    if (!Array.isArray(items)) return [];
+    return items
+        .map(item => (item == null ? "" : String(item).trim()))
+        .filter(Boolean);
+}
+
+const BRAIN_NO_WARNINGS_TEXT = "No warning information available.";
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+/** Authoritative AWS ``data.warnings`` only (same array as GET /data; not legacy Flask fields). */
+function getAuthoritativeWarnings(data) {
+    if (!data || typeof data !== "object") return [];
+    try {
+        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+        return warnings
+            .map(item => (item == null ? "" : String(item).trim()))
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+function resolveWarningBannerText(warnings, warningStatus, warningBanner) {
+    const list = normalizeWarningStrings(warnings);
+    const explicit =
+        warningBanner != null && warningBanner !== false
+            ? String(warningBanner).trim()
+            : "";
+
+    if (list.length > 0) {
+        if (explicit && explicit !== BRAIN_NO_WARNINGS_TEXT) {
+            return explicit;
+        }
+        return list.join(" | ");
+    }
+
+    const statusMessages = warningStatus?.messages;
+    if (Array.isArray(statusMessages) && statusMessages.length > 0) {
+        return normalizeWarningStrings(statusMessages).join(" | ");
+    }
+
+    if (explicit && explicit !== BRAIN_NO_WARNINGS_TEXT) return explicit;
+    return BRAIN_NO_WARNINGS_TEXT;
+}
+
+function setBrainWarningDetailTone(el, tone) {
+    el.classList.remove("text-ok", "text-warn", "text-bad");
+    if (tone === "warning") {
+        el.classList.add("text-warn");
+    } else if (tone === "error") {
+        el.classList.add("text-bad");
+    } else {
+        el.classList.add("text-ok");
+    }
+}
+
+function isBrainFetchFailed(data) {
+    if (!data || typeof data !== "object") return true;
+    if (data.data_source === "AWS_ERROR") return true;
+    if (data.error_code && data.success === false && !data.fallback_used) return true;
+    return data.success === false && !data.fallback_used;
+}
+
+/**
+ * Brain source card: lineage on #brainSource; warning details on #brainWarningInfo.
+ * Uses the same warnings array as the Warnings card (extractCloudWarnings / data.warnings).
+ */
+function updateBrainSourceDisplay(data, warnings) {
+    const brainEl = document.getElementById("brainSource");
+    const brainWarningEl = document.getElementById("brainWarningInfo");
+
+    if (brainEl) {
+        const parts = [
+            data?.data_source || data?.source,
+            data?.analysis_source ? `analysis:${data.analysis_source}` : null,
+            data?.settings_source ? `settings:${data.settings_source}` : null
+        ].filter(Boolean);
+        brainEl.textContent = parts.join(" · ") || "—";
+    }
+
+    if (!brainWarningEl) return;
+
+    const list = normalizeWarningStrings(
+        Array.isArray(warnings) ? warnings : extractCloudWarnings(data)
+    );
+
+    if (list.length > 0) {
+        brainWarningEl.textContent = list.join(" · ");
+        setBrainWarningDetailTone(brainWarningEl, "warning");
+        return;
+    }
+
+    if (isBrainFetchFailed(data)) {
+        const msg =
+            data?.message ||
+            data?.warning_banner ||
+            "Failed to load monitoring data from the server.";
+        brainWarningEl.textContent = String(msg).trim();
+        setBrainWarningDetailTone(brainWarningEl, "error");
+        return;
+    }
+
+    brainWarningEl.textContent = "No warnings.";
+    setBrainWarningDetailTone(brainWarningEl, "normal");
+}
+
+function updateWarnings(warnings, warningStatus, warningBanner) {
+    const list = normalizeWarningStrings(warnings);
+    const countEl = document.getElementById("warningCount");
+    if (countEl) {
+        const count = warningStatus?.count;
+        countEl.textContent =
+            count != null && count !== "" ? count : list.length;
+    }
+
+    const level =
+        warningStatus?.level || (list.length > 0 ? "warning" : "normal");
     updateOverallLevel(level);
-    showWarningBanner(level, warningBanner || "No warning information available.");
-    renderWarnings(warnings);
+    showWarningBanner(
+        level,
+        resolveWarningBannerText(list, warningStatus, warningBanner)
+    );
+    renderWarnings(list);
 }
 
 function showWarningBanner(level, text) {
     const banner = document.getElementById("warningBanner");
     if (!banner) return;
 
-    banner.textContent = text || "No warning information available.";
+    banner.textContent = text || BRAIN_NO_WARNINGS_TEXT;
     banner.classList.remove("normal", "warning", "error", "critical");
 
     if (level === "error") {
@@ -217,13 +412,14 @@ function renderWarnings(warnings) {
     const warningsList = document.getElementById("warnings");
     if (!warningsList) return;
 
+    const list = normalizeWarningStrings(warnings);
     warningsList.innerHTML = "";
 
-    if (!warnings || warnings.length === 0) {
+    if (list.length === 0) {
         warningsList.innerHTML = "<li>No warnings.</li>";
         return;
     }
-    warnings.forEach(item => {
+    list.forEach(item => {
         const li = document.createElement("li");
         li.textContent = item;
         warningsList.appendChild(li);
@@ -261,15 +457,38 @@ function updateRuntime(runtime) {
     }
 }
 
-function updateSettingsForm(settings) {
-    if (!settings || isSettingsFormDirty) return;
+function normalizeSettingsForForm(settings) {
+    if (!settings || typeof settings !== "object") return null;
+    const pick = (...keys) => {
+        for (const k of keys) {
+            if (settings[k] !== undefined && settings[k] !== null && settings[k] !== "") {
+                return settings[k];
+            }
+        }
+        return "";
+    };
+    return {
+        temp_min: pick("temp_min", "temperature_min", "min_temp"),
+        temp_max: pick("temp_max", "temperature_max", "max_temp"),
+        humidity_min: pick("humidity_min", "hum_min", "min_humidity"),
+        humidity_max: pick("humidity_max", "hum_max", "max_humidity"),
+        pressure_min: pick("pressure_min", "pressure_low", "min_pressure"),
+        pressure_max: pick("pressure_max", "pressure_high", "max_pressure")
+    };
+}
 
-    document.getElementById("temp_min").value = settings.temp_min ?? "";
-    document.getElementById("temp_max").value = settings.temp_max ?? "";
-    document.getElementById("humidity_min").value = settings.humidity_min ?? "";
-    document.getElementById("humidity_max").value = settings.humidity_max ?? "";
-    document.getElementById("pressure_min").value = settings.pressure_min ?? "";
-    document.getElementById("pressure_max").value = settings.pressure_max ?? "";
+function updateSettingsForm(settings, force = false) {
+    const normalized = normalizeSettingsForForm(settings);
+    if (!normalized) return;
+    if (!force && isSettingsFormDirty) return;
+    if (!force && Date.now() < settingsPinnedUntil) return;
+
+    document.getElementById("temp_min").value = normalized.temp_min;
+    document.getElementById("temp_max").value = normalized.temp_max;
+    document.getElementById("humidity_min").value = normalized.humidity_min;
+    document.getElementById("humidity_max").value = normalized.humidity_max;
+    document.getElementById("pressure_min").value = normalized.pressure_min;
+    document.getElementById("pressure_max").value = normalized.pressure_max;
 }
 
 function initChart() {
@@ -435,6 +654,10 @@ async function handleSettingsSubmit(event) {
 
         showFormMessage("settingsMessage", result.message || "Settings saved to DynamoDB.", true);
         isSettingsFormDirty = false;
+        if (result.settings) {
+            settingsPinnedUntil = Date.now() + 10000;
+            updateSettingsForm(result.settings, true);
+        }
         await fetchData();
     } catch (error) {
         console.error("Settings update error:", error);

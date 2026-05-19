@@ -2,7 +2,7 @@
 Lambda: GET and POST /settings
 
 * **GET** — returns current threshold settings from DynamoDB (defaults if missing).
-* **POST** — validates body and writes the singleton ``global`` row.
+* **POST** — validates body and writes DeviceSettings row keyed by ``device_id`` (default ``pi-001``).
 
 Supports **API Gateway HTTP API (v2)** and **REST API (v1)** event shapes.
 Always returns JSON bodies (including 404/405) so clients never see a bare
@@ -18,6 +18,7 @@ from typing import Any, Dict
 
 from shared.dynamo_settings import (
     load_settings,
+    resolve_device_id,
     save_settings,
     validate_settings_payload,
 )
@@ -87,12 +88,23 @@ def _handle_options() -> Dict[str, Any]:
     }
 
 
-def _handle_get() -> Dict[str, Any]:
-    settings = load_settings()
+def _device_id_from_event(event: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    params = (event or {}).get("queryStringParameters") or {}
+    if isinstance(params, dict) and params.get("device_id"):
+        return resolve_device_id(str(params["device_id"]))
+    if payload.get("device_id"):
+        return resolve_device_id(str(payload["device_id"]))
+    return resolve_device_id(None)
+
+
+def _handle_get(event: Dict[str, Any]) -> Dict[str, Any]:
+    device_id = _device_id_from_event(event, {})
+    settings = load_settings(device_id=device_id)
     return _json_response(
         200,
         {
             "success": True,
+            "device_id": device_id,
             "settings": settings,
         },
     )
@@ -100,6 +112,7 @@ def _handle_get() -> Dict[str, Any]:
 
 def _handle_post(event: Dict[str, Any]) -> Dict[str, Any]:
     payload = _parse_body(event)
+    device_id = _device_id_from_event(event, payload)
     try:
         values = validate_settings_payload(payload)
     except ValueError as exc:
@@ -112,7 +125,7 @@ def _handle_post(event: Dict[str, Any]) -> Dict[str, Any]:
             },
         )
     try:
-        save_settings(values)
+        persisted = save_settings(values, device_id=device_id)
     except Exception as exc:
         logger.exception("DynamoDB write failed: %s", exc)
         return _json_response(
@@ -128,7 +141,8 @@ def _handle_post(event: Dict[str, Any]) -> Dict[str, Any]:
         {
             "success": True,
             "message": "Settings updated.",
-            "settings": {k: float(v) for k, v in values.items()},
+            "device_id": device_id,
+            "settings": persisted,
         },
     )
 
@@ -142,7 +156,7 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         return _handle_options()
 
     if method == "GET":
-        return _handle_get()
+        return _handle_get(event)
 
     if method == "POST":
         return _handle_post(event)

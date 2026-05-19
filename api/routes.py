@@ -22,6 +22,7 @@ from sensor.reader import get_sensor_source_name
 from services.aws_proxy import aws_unavailable_error, build_aws_dashboard_response
 from services.dashboard_service import build_dashboard_payload
 from services.local_fallback import build_local_fallback_payload
+from services.settings_normalize import normalize_settings_dict
 
 logger = logging.getLogger("smart_env_monitor.api.routes")
 
@@ -119,12 +120,15 @@ def api_data():
 
     if getattr(cfg, "USE_AWS_BRAIN", True):
         try:
+            logger.info("[DEBUG] /api/data source=CLOUD (calling AWS GET /data) device_id=%s", device_id)
             payload = build_aws_dashboard_response(current_app, _cloud(), device_id=device_id)
             return jsonify(payload)
         except CloudClientError as exc:
-            logger.warning("api_data AWS unavailable: %s", exc)
+            logger.warning("[DEBUG] /api/data AWS GET /data failed: %s", exc)
             if getattr(cfg, "LOCAL_FALLBACK_ON_AWS_ERROR", False):
+                logger.warning("[DEBUG] /api/data source=LOCAL_FALLBACK (LOCAL_FALLBACK_ON_AWS_ERROR=1)")
                 body = build_local_fallback_payload(current_app, error_message=str(exc))
+                body["data_source"] = "LOCAL_FALLBACK"
                 return jsonify(body), 503
             err = aws_unavailable_error(exc)
             err.update(
@@ -147,7 +151,9 @@ def api_data():
             )
             return jsonify(err), 503
 
+    logger.warning("[DEBUG] /api/data source=LOCAL_FALLBACK (USE_AWS_BRAIN=false)")
     payload = build_dashboard_payload(current_app, _cloud(), device_id=device_id)
+    payload["data_source"] = "LOCAL_FALLBACK"
     status = 200 if payload.get("success", True) else 503
     return jsonify(payload), status
 
@@ -180,9 +186,12 @@ def api_ingest():
 @api_bp.route("/settings", methods=["GET", "POST"])
 @login_required
 def api_settings():
+    cfg = _cfg()
+    device_id = request.args.get("device_id") or getattr(cfg, "DEVICE_ID", "pi-001")
+
     if request.method == "GET":
         try:
-            result = _cloud().get_settings()
+            result = _cloud().get_settings(device_id=device_id)
         except CloudClientError as exc:
             logger.warning("Cloud settings GET failed: %s", exc)
             return build_error_response(
@@ -200,6 +209,10 @@ def api_settings():
         body = dict(result)
         body.setdefault("source", "aws")
         body["success"] = True
+        if isinstance(body.get("settings"), dict):
+            normalized = normalize_settings_dict(body["settings"])
+            if normalized:
+                body["settings"] = normalized
         return jsonify(body)
 
     data = request.get_json(silent=True) or {}
@@ -209,7 +222,12 @@ def api_settings():
         return build_error_response(str(exc))
 
     try:
-        result = _cloud().post_settings(values)
+        logger.info(
+            "[DEBUG] DynamoDB settings proxy POST device_id:%s payload_keys=%s",
+            device_id,
+            list(values.keys()),
+        )
+        result = _cloud().post_settings(values, device_id=device_id)
     except CloudClientError as exc:
         logger.warning("Cloud settings POST failed: %s", exc)
         return build_error_response(str(exc), 502, fallback_used=False, **exc.to_flask_extra())
@@ -220,9 +238,18 @@ def api_settings():
             502,
             upstream_json=result,
         )
+    settings_out = result.get("settings")
+    if isinstance(settings_out, dict):
+        from sensor import runtime as rt
+
+        normalized = normalize_settings_dict(settings_out)
+        if normalized:
+            settings_out = normalized
+        rt.runtime_state["settings_cache"] = settings_out
+
     return build_success_response(
         message=result.get("message", "Settings updated"),
-        settings=result.get("settings"),
+        settings=settings_out,
     )
 
 

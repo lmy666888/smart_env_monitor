@@ -6,7 +6,7 @@ series. Flask proxies this response without recomputing analysis.
 
 Environment variables:
     SENSOR_TABLE_NAME     DynamoDB SensorData (partition: device_id, sort: timestamp)
-    SETTINGS_TABLE_NAME   DynamoDB DeviceSettings (partition: id, row id=global)
+    SETTINGS_TABLE_NAME   DynamoDB DeviceSettings (partition key: device_id, e.g. pi-001)
     READING_LIMIT         Optional, default 50
     SENSOR_INTERVAL       Optional, seconds between readings for prediction text
 """
@@ -106,7 +106,7 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     device_id = params.get("device_id", "pi-001")
 
     sensor_data = _load_recent_readings(device_id=device_id)
-    settings = load_settings(SETTINGS_TABLE_NAME)
+    settings = load_settings(SETTINGS_TABLE_NAME, device_id=device_id)
     latest = sensor_data[0] if sensor_data else None
     chart_labels, chart_values = _chart_from_readings(sensor_data)
     chron = list(reversed(sensor_data[-50:]))
