@@ -152,8 +152,48 @@ async function fetchData() {
     }
 }
 
+function formatSensorSourceValue(raw) {
+    if (!raw) return "Unknown";
+    const key = String(raw).trim().toLowerCase();
+    const labels = {
+        sense_emu: "Sense HAT Emulator",
+        real_sense_hat: "Real Sense HAT",
+        mock: "Mock / Fallback",
+        unknown: "Unknown",
+        aws: "AWS Cloud",
+        cloud: "AWS Cloud"
+    };
+    return labels[key] || String(raw);
+}
+
+/** Sensor Backend label from cloud payload (not local Flask reader). */
+function resolveSensorBackendLabel(data) {
+    if (!data || typeof data !== "object") return "--";
+
+    const isCloud =
+        data.data_source === "CLOUD" ||
+        data.source === "aws" ||
+        (data.cloud && data.cloud.data_source === "CLOUD");
+
+    const raw =
+        data.sensor_backend ||
+        (data.latest && data.latest.source) ||
+        data.sensor_source ||
+        "unknown";
+
+    const friendly = formatSensorSourceValue(raw);
+
+    if (isCloud && raw && raw !== "mock" && raw !== "unknown") {
+        return `${friendly} via AWS Cloud`;
+    }
+    if (isCloud) {
+        return `AWS Cloud (${friendly})`;
+    }
+    return friendly;
+}
+
 function applyDashboardPayload(data) {
-    updateSensorSource(data.sensor_source || "--");
+    updateSensorSource(resolveSensorBackendLabel(data));
     updateCloudPanels(data);
 
     const cloudWarnings = extractCloudWarnings(data);

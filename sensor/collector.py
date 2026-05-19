@@ -61,6 +61,7 @@ def collect_reading_and_upload(config_class: Optional[type] = None) -> bool:
 
     payload: Dict[str, Any] = {
         "device_id": getattr(cfg, "DEVICE_ID", "pi-001"),
+        "source": get_sensor_source_name(),
         "temperature": reading["temperature"],
         "humidity": reading["humidity"],
         "pressure": reading["pressure"],

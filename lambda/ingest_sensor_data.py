@@ -10,7 +10,8 @@ Expected request body:
         "temperature": 26.5,
         "humidity": 62.0,
         "pressure": 1011.0,
-        "timestamp": "2026-05-13T15:50:42.803254"  # optional, generated if missing
+        "timestamp": "2026-05-13T15:50:42.803254",  # optional
+        "source": "sense_emu"  # optional: sense_emu | real_sense_hat | mock
     }
 
 Environment variables:
@@ -89,14 +90,19 @@ def _validate_reading(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     device_id = str(payload.get("device_id") or "pi-001")
     timestamp = str(payload.get("timestamp") or datetime.now(timezone.utc).isoformat())
+    source = str(payload.get("source") or payload.get("sensor_source") or "").strip()
+    if not source:
+        source = "unknown"
 
-    return {
+    item = {
         "device_id": device_id,
         "timestamp": timestamp,
         "temperature": Decimal(str(round(temperature, 2))),
         "humidity": Decimal(str(round(humidity, 2))),
         "pressure": Decimal(str(round(pressure, 2))),
+        "source": source,
     }
+    return item
 
 
 def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
@@ -116,12 +122,21 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         logger.exception("Failed to write sensor reading: %s", exc)
         return _build_response(500, {"success": False, "message": "Database write failed."})
 
+    logger.info(
+        "Stored reading device_id=%s source=%s T=%s H=%s P=%s",
+        item["device_id"],
+        item.get("source"),
+        item["temperature"],
+        item["humidity"],
+        item["pressure"],
+    )
     return _build_response(201, {
         "success": True,
         "message": "Sensor reading stored.",
         "stored": {
             "device_id": item["device_id"],
             "timestamp": item["timestamp"],
+            "source": item.get("source"),
         },
     })
 

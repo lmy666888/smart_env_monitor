@@ -46,6 +46,7 @@ For local UI-only demos: `export DISABLE_AUTH=1` (trusted networks only).
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `USE_AWS_BRAIN` | `true` | Proxy AWS for data/settings/auth |
+| `ENABLE_BACKGROUND_COLLECTOR` | `false` | Flask background ingest loop (off for cloud demo) |
 | `AWS_API_BASE_URL` | class API URL | API Gateway base |
 | `CLOUD_TIMEOUT_SECONDS` | `12` | HTTP client timeout |
 | `LOCAL_FALLBACK_ON_AWS_ERROR` | `false` | Use local analysis + optional SQLite if AWS down |
@@ -122,12 +123,53 @@ A CloudWatch dashboard in your AWS account should monitor:
 ## Raspberry Pi / Sense HAT emulator flow
 
 1. **Read:** `sensor/reader.py` — `sense_emu` → `real_sense_hat` → per-cycle `mock` fallback.
-2. **Upload:** `sensor/collector.py` (Flask background thread) or `python -m device.device_sender` → `POST` AWS `/ingest`.
-3. **View:** Browser → Flask `/api/data` → AWS `/data`.
+2. **Upload:** `device/emulator_uploader.py` (recommended for demo) or Flask background collector / `device_sender`.
+3. **View:** Browser → Flask `/api/data` → AWS `/data` (dashboard shows `sensor_backend` from cloud).
+
+### Final cloud demonstration (recommended)
+
+Use **system Python** for the emulator uploader (not the Flask venv) so invalid venv SenseEMU reads are not posted as mock data.
+
+**Terminal 1 — Sense HAT Emulator GUI**
+
+```bash
+python3 -m sense_emu.gui
+```
+
+**Terminal 2 — Emulator → AWS ingest (`source=sense_emu`)**
+
+```bash
+cd ~/Desktop/smart_env_monitor
+python3 device/emulator_uploader.py
+```
+
+**Terminal 3 — Flask dashboard (background collector off)**
+
+```bash
+cd ~/Desktop/smart_env_monitor
+source .venv/bin/activate
+ENABLE_BACKGROUND_COLLECTOR=false python run.py
+```
+
+**Browser:** http://127.0.0.1:5001
+
+Verify in logs:
+
+- Flask: `Background sensor collector disabled; dashboard will read cloud data only.`
+- Uploader: `[POST] source=sense_emu …`
+- Flask: `[DEBUG] /api/data returning sensor_backend=sense_emu`
+- Dashboard **Sensor Backend:** `Sense HAT Emulator via AWS Cloud`
+
+### Optional: Flask background collector
+
+```bash
+ENABLE_BACKGROUND_COLLECTOR=true python run.py
+```
+
+### Legacy device sender (project venv)
 
 ```bash
 export DEVICE_ID=pi-001
-export SENSOR_BACKEND=sense_emu   # or sense_hat on Pi
 python -m device.device_sender
 ```
 

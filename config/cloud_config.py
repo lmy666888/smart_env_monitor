@@ -50,6 +50,14 @@ LOCAL_FALLBACK_ON_AWS_ERROR = os.getenv("LOCAL_FALLBACK_ON_AWS_ERROR", "false").
     "on",
 }
 
+# Flask background upload loop (sensor.collector). Default off for cloud demo mode.
+ENABLE_BACKGROUND_COLLECTOR = os.getenv("ENABLE_BACKGROUND_COLLECTOR", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 
 def endpoint_url(path: str) -> str:
     """Build full URL for an API Gateway path (leading slash required)."""

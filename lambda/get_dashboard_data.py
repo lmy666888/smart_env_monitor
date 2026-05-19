@@ -141,6 +141,20 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             "prediction": "No analysis available yet.",
         }
 
+    sensor_backend = "unknown"
+    if isinstance(latest, dict):
+        sensor_backend = str(
+            latest.get("source") or latest.get("sensor_source") or "unknown"
+        )
+        latest.setdefault("source", sensor_backend)
+
+    logger.info(
+        "get_dashboard_data device_id=%s sensor_backend=%s points=%s",
+        device_id,
+        sensor_backend,
+        len(sensor_data),
+    )
+
     return _build_response(
         200,
         {
@@ -148,6 +162,7 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             "source": "aws",
             "sensor_data": sensor_data,
             "latest": latest,
+            "sensor_backend": sensor_backend,
             "settings": settings,
             "warnings": warnings,
             "warning_status": warning_status,

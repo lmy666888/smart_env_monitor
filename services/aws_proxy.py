@@ -46,8 +46,43 @@ def _ensure_chart_fields(payload: Dict[str, Any], sensor_list: List[Dict[str, An
     payload.setdefault("chart_values", values)
 
 
+def _resolve_cloud_sensor_backend(payload: Dict[str, Any]) -> str:
+    """Latest reading source from DynamoDB (via Lambda), not local Flask reader."""
+    backend = payload.get("sensor_backend")
+    if backend:
+        return str(backend)
+    latest = payload.get("latest")
+    if isinstance(latest, dict):
+        return str(latest.get("source") or latest.get("sensor_source") or "unknown")
+    return "unknown"
+
+
+def _apply_sensor_source_metadata(payload: Dict[str, Any]) -> None:
+    """
+    CLOUD mode: preserve AWS ``sensor_backend`` / ``latest.source``.
+    Local mode: use Flask ``get_sensor_source_name()``.
+    """
+    is_cloud = payload.get("data_source") == "CLOUD" or payload.get("source") == "aws"
+    if is_cloud:
+        backend = _resolve_cloud_sensor_backend(payload)
+        payload["sensor_backend"] = backend
+        payload["sensor_source"] = backend
+        latest = payload.get("latest")
+        if isinstance(latest, dict) and backend != "unknown":
+            latest.setdefault("source", backend)
+        logger.info(
+            "[DEBUG] /api/data returning sensor_backend=%s latest.source=%s",
+            backend,
+            (latest or {}).get("source") if isinstance(latest, dict) else None,
+        )
+    else:
+        local_src = get_sensor_source_name()
+        payload.setdefault("sensor_source", local_src)
+        payload.setdefault("sensor_backend", local_src)
+
+
 def _merge_runtime_metadata(payload: Dict[str, Any], cfg_class: type) -> None:
-    payload.setdefault("sensor_source", get_sensor_source_name())
+    _apply_sensor_source_metadata(payload)
     payload.setdefault("runtime", dict(rt.runtime_state))
     payload.setdefault(
         "cloud",

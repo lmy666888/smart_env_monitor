@@ -59,7 +59,13 @@ def create_app() -> Flask:
     except Exception:
         pass
 
-    start_background_worker(app)
+    if getattr(Config, "ENABLE_BACKGROUND_COLLECTOR", False):
+        start_background_worker(app)
+    else:
+        logger.info(
+            "Background sensor collector disabled; dashboard will read cloud data only."
+        )
+        rt.runtime_state["collector_thread_alive"] = False
 
     @app.get("/health")
     def root_health():
