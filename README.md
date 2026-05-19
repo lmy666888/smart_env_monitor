@@ -91,7 +91,7 @@ Errors return `success: false`, `source: "aws"`, `error_code`, and `fallback_use
 |-------|-----|---------|
 | **SensorData** | `device_id` + `timestamp` | All sensor readings (SoT) |
 | **DeviceSettings** | `id` = `global` | Threshold min/max |
-| **Users** | `username` | Password hashes (Werkzeug) for login |
+| **Users** | `username` | `email`, `password_hash` (Werkzeug) for login/register |
 
 ---
 
@@ -142,7 +142,7 @@ curl -s "$BASE/health" | jq .
 
 curl -s -X POST "$BASE/register" \
   -H "Content-Type: application/json" \
-  -d '{"username":"demo1","password":"secret12"}' | jq .
+  -d '{"username":"demo1","email":"demo1@example.com","password":"secret12"}' | jq .
 
 curl -s -X POST "$BASE/login" \
   -H "Content-Type: application/json" \

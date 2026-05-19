@@ -150,15 +150,17 @@ def build_login_result(username: str, password: str) -> Dict[str, object]:
     }
 
 
-def build_register_result(username: str, password: str) -> Dict[str, object]:
+def build_register_result(username: str, email: str, password: str) -> Dict[str, object]:
     username = str(username or "").strip()
+    email = str(email or "").strip()
     password = str(password or "")
 
-    if not username or not password:
+    if not username or not email or not password:
         return {
             "success": False,
             "source": "aws",
-            "message": "Username and password are required.",
+            "message": "Username, email and password are required.",
+            "error_code": "validation_error",
         }
 
     cfg = get_config()
@@ -171,7 +173,9 @@ def build_register_result(username: str, password: str) -> Dict[str, object]:
         }
 
     try:
-        result = _cloud_client().post_register({"username": username, "password": password})
+        result = _cloud_client().post_register(
+            {"username": username, "email": email, "password": password}
+        )
     except CloudClientError as exc:
         return {
             "success": False,

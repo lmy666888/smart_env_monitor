@@ -32,6 +32,7 @@ _CORS = {
 }
 
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{3,32}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _json_response(status_code: int, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +67,18 @@ def _parse_body(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _handle_register(payload: Dict[str, Any]) -> Dict[str, Any]:
     username = str(payload.get("username", "")).strip()
+    email = str(payload.get("email", "")).strip().lower()
     password = str(payload.get("password", ""))
+
+    if not username or not email or not password:
+        return _json_response(
+            400,
+            {
+                "success": False,
+                "message": "Username, email and password are required.",
+                "error_code": "validation_error",
+            },
+        )
 
     if not _USERNAME_RE.match(username):
         return _json_response(
@@ -74,6 +86,15 @@ def _handle_register(payload: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "success": False,
                 "message": "Username must be 3–32 characters (letters, numbers, ._-).",
+                "error_code": "validation_error",
+            },
+        )
+    if not _EMAIL_RE.match(email):
+        return _json_response(
+            400,
+            {
+                "success": False,
+                "message": "Please provide a valid email address.",
                 "error_code": "validation_error",
             },
         )
@@ -102,6 +123,7 @@ def _handle_register(payload: Dict[str, Any]) -> Dict[str, Any]:
     table.put_item(
         Item={
             "username": username,
+            "email": email,
             "password_hash": generate_password_hash(password),
         }
     )
@@ -111,6 +133,7 @@ def _handle_register(payload: Dict[str, Any]) -> Dict[str, Any]:
             "success": True,
             "message": "Registration successful.",
             "username": username,
+            "email": email,
         },
     )
 

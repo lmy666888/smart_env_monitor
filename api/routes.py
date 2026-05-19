@@ -265,8 +265,9 @@ def api_login():
 def api_register():
     data = request.get_json(silent=True) or {}
     username = str(data.get("username", "")).strip()
+    email = str(data.get("email", "")).strip()
     password = str(data.get("password", ""))
-    result = build_register_result(username, password)
+    result = build_register_result(username, email, password)
     status = 201 if result.get("success") else 400
     return jsonify(result), status
 

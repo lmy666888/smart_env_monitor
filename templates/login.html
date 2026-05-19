@@ -43,7 +43,13 @@
             <form id="registerForm" class="settings-form">
                 <div class="form-group">
                     <label for="reg_username">Username</label>
-                    <input id="reg_username" name="username" type="text" required minlength="3" autocomplete="username">
+                    <input id="reg_username" name="username" type="text" required minlength="3" maxlength="32"
+                           pattern="[A-Za-z0-9_.-]{3,32}" title="3–32 characters: letters, numbers, . _ -"
+                           autocomplete="username">
+
+                    <label for="reg_email">Email</label>
+                    <input id="reg_email" name="email" type="email" required autocomplete="email"
+                           placeholder="you@example.com">
 
                     <label for="reg_password">Password</label>
                     <input id="reg_password" name="password" type="password" required minlength="6" autocomplete="new-password">
@@ -58,17 +64,35 @@
             e.preventDefault();
             const msg = document.getElementById("registerMessage");
             const btn = document.getElementById("registerBtn");
+            const username = document.getElementById("reg_username").value.trim();
+            const email = document.getElementById("reg_email").value.trim();
+            const password = document.getElementById("reg_password").value;
+
+            if (!username || !email || !password) {
+                msg.textContent = "Username, email and password are required.";
+                msg.className = "form-message error";
+                return;
+            }
+            if (!document.getElementById("reg_email").checkValidity()) {
+                msg.textContent = "Please enter a valid email address.";
+                msg.className = "form-message error";
+                return;
+            }
+            if (!document.getElementById("registerForm").checkValidity()) {
+                msg.textContent = "Please check the form fields.";
+                msg.className = "form-message error";
+                return;
+            }
+
             btn.disabled = true;
             msg.textContent = "Registering…";
             msg.className = "form-message";
+            msg.classList.remove("success", "error");
             try {
                 const res = await fetch("/api/register", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        username: document.getElementById("reg_username").value,
-                        password: document.getElementById("reg_password").value
-                    })
+                    body: JSON.stringify({ username, email, password })
                 });
                 const data = await res.json();
                 if (!res.ok || !data.success) {
