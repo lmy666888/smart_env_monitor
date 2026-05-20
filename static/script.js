@@ -44,53 +44,9 @@ function updateOverallLevel(level) {
     el.classList.add("status-pill", level === "critical" ? "critical" : level || "normal");
 }
 
-const CLOUD_FRESHNESS_RECENT_SECONDS = 30;
-
-function parseCloudTimestamp(value) {
-    if (!value) return null;
-    const parsed = new Date(String(value));
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatCloudAge(seconds) {
-    const s = Math.max(0, Math.round(seconds));
-    if (s < 60) return `${s} second${s === 1 ? "" : "s"} ago`;
-    const m = Math.round(s / 60);
-    return `${m} minute${m === 1 ? "" : "s"} ago`;
-}
-
-function updateCloudFreshnessStatus(latest) {
-    const dynamoEl = document.getElementById("dynamoStatus");
-    if (!dynamoEl) return;
-
-    dynamoEl.classList.remove("text-ok", "text-warn", "text-bad");
-
-    if (!latest || !latest.timestamp) {
-        dynamoEl.textContent = "No cloud data timestamp available";
-        dynamoEl.classList.add("text-bad");
-        return;
-    }
-
-    const readAt = parseCloudTimestamp(latest.timestamp);
-    if (!readAt) {
-        dynamoEl.textContent = "No cloud data timestamp available";
-        dynamoEl.classList.add("text-bad");
-        return;
-    }
-
-    const ageSec = (Date.now() - readAt.getTime()) / 1000;
-    if (ageSec <= CLOUD_FRESHNESS_RECENT_SECONDS) {
-        dynamoEl.textContent = "Recent cloud write detected";
-        dynamoEl.classList.add("text-ok");
-        return;
-    }
-
-    dynamoEl.textContent = `Cloud data available, but not recent. Last update: ${formatCloudAge(ageSec)}`;
-    dynamoEl.classList.add("text-warn");
-}
-
 function updateCloudPanels(data) {
     const rt = data.runtime || {};
+    const cloud = data.cloud || {};
 
     const fetchOk = rt.cloud_api_reachable === true;
     const cloudEl = document.getElementById("cloudApiStatus");
@@ -100,7 +56,13 @@ function updateCloudPanels(data) {
         cloudEl.classList.toggle("text-bad", !fetchOk);
     }
 
-    updateCloudFreshnessStatus(data.latest);
+    const dynamoEl = document.getElementById("dynamoStatus");
+    if (dynamoEl) {
+        const ok = rt.dynamodb_indicated_ok === true;
+        dynamoEl.textContent = ok ? "Writes OK" : "Unknown / no recent write";
+        dynamoEl.classList.toggle("text-ok", ok);
+        dynamoEl.classList.toggle("text-warn", !ok);
+    }
 
     const lastFetch = document.getElementById("lastCloudFetch");
     if (lastFetch) lastFetch.textContent = formatDisplayTime(rt.last_cloud_fetch_success_at);
@@ -167,10 +129,6 @@ async function fetchData() {
             cloud: {}
         });
         showWarningBanner("error", "Failed to load monitoring data from the server.");
-        updateBrainSourceDisplay(
-            { success: false, message: "Failed to load monitoring data from the server." },
-            []
-        );
 
         if (!lastSuccessfulPayload) {
             renderWarnings(["Unable to retrieve warning data."]);
@@ -190,58 +148,11 @@ async function fetchData() {
     }
 }
 
-function formatSensorSourceValue(raw) {
-    if (!raw) return "Unknown";
-    const key = String(raw).trim().toLowerCase();
-    const labels = {
-        sense_emu: "Sense HAT Emulator",
-        real_sense_hat: "Real Sense HAT",
-        mock: "Mock / Fallback",
-        mock_demo: "Mock Demo Data",
-        mac_mock: "Mock Demo Data",
-        unknown: "Unknown",
-        aws: "AWS Cloud",
-        cloud: "AWS Cloud"
-    };
-    return labels[key] || String(raw);
-}
-
-/** Sensor Backend label from cloud payload (not local Flask reader). */
-function resolveSensorBackendLabel(data) {
-    if (!data || typeof data !== "object") return "--";
-
-    const raw =
-        data.sensor_backend ||
-        (data.latest && data.latest.source) ||
-        data.sensor_source ||
-        "unknown";
-    const key = String(raw).trim().toLowerCase();
-
-    if (key === "sense_emu") {
-        return "Sense HAT Emulator via AWS";
-    }
-    if (key === "mock_demo" || key === "mac_mock") {
-        return "Mock Demo Data via AWS";
-    }
-
-    const isCloud =
-        data.data_source === "CLOUD" ||
-        data.source === "aws" ||
-        (data.cloud && data.cloud.data_source === "CLOUD");
-
-    const friendly = formatSensorSourceValue(raw);
-    if (isCloud) {
-        return `${friendly} via AWS`;
-    }
-    return friendly;
-}
-
 function applyDashboardPayload(data) {
-    updateSensorSource(resolveSensorBackendLabel(data));
+    updateSensorSource(data.sensor_source || "--");
     updateCloudPanels(data);
 
-    const cloudWarnings = extractCloudWarnings(data);
-    updateBrainSourceDisplay(data, cloudWarnings);
+    updateBrainSourceDisplay(data);
 
     const hasPoints =
         (data.cloud && data.cloud.sensor_points > 0) ||
@@ -251,6 +162,7 @@ function applyDashboardPayload(data) {
     setEmptyStateVisible(!data.latest && !hasPoints);
 
     updateRealtimeReadings(data.latest);
+    const cloudWarnings = extractCloudWarnings(data);
     const authWarnings = getAuthoritativeWarnings(data);
     const statusBannerText =
         authWarnings.length > 0
@@ -347,7 +259,7 @@ function normalizeWarningStrings(items) {
         .filter(Boolean);
 }
 
-const BRAIN_NO_WARNINGS_TEXT = "No warning information available.";
+const BRAIN_NO_WARNINGS_TEXT = "          ";
 
 function escapeHtml(text) {
     return String(text)
@@ -394,29 +306,11 @@ function resolveWarningBannerText(warnings, warningStatus, warningBanner) {
     return BRAIN_NO_WARNINGS_TEXT;
 }
 
-function setBrainWarningDetailTone(el, tone) {
-    el.classList.remove("text-ok", "text-warn", "text-bad");
-    if (tone === "warning") {
-        el.classList.add("text-warn");
-    } else if (tone === "error") {
-        el.classList.add("text-bad");
-    } else {
-        el.classList.add("text-ok");
-    }
-}
-
-function isBrainFetchFailed(data) {
-    if (!data || typeof data !== "object") return true;
-    if (data.data_source === "AWS_ERROR") return true;
-    if (data.error_code && data.success === false && !data.fallback_used) return true;
-    return data.success === false && !data.fallback_used;
-}
-
 /**
  * Brain source card: lineage on #brainSource; warning details on #brainWarningInfo.
- * Uses the same warnings array as the Warnings card (extractCloudWarnings / data.warnings).
+ * AWS GET /data ``data.warnings`` is authoritative (not warning_info / analysis.warning_info).
  */
-function updateBrainSourceDisplay(data, warnings) {
+function updateBrainSourceDisplay(data) {
     const brainEl = document.getElementById("brainSource");
     const brainWarningEl = document.getElementById("brainWarningInfo");
 
@@ -431,28 +325,16 @@ function updateBrainSourceDisplay(data, warnings) {
 
     if (!brainWarningEl) return;
 
-    const list = normalizeWarningStrings(
-        Array.isArray(warnings) ? warnings : extractCloudWarnings(data)
-    );
-
-    if (list.length > 0) {
-        brainWarningEl.textContent = list.join(" · ");
-        setBrainWarningDetailTone(brainWarningEl, "warning");
+    const warnings = getAuthoritativeWarnings(data);
+    if (warnings.length > 0) {
+        brainWarningEl.innerHTML = warnings
+            .map(w => `<div>${escapeHtml(String(w))}</div>`)
+            .join("");
         return;
     }
 
-    if (isBrainFetchFailed(data)) {
-        const msg =
-            data?.message ||
-            data?.warning_banner ||
-            "Failed to load monitoring data from the server.";
-        brainWarningEl.textContent = String(msg).trim();
-        setBrainWarningDetailTone(brainWarningEl, "error");
-        return;
-    }
-
-    brainWarningEl.textContent = "No warnings.";
-    setBrainWarningDetailTone(brainWarningEl, "normal");
+    brainWarningEl.textContent = "";
+    brainWarningEl.innerHTML = "";
 }
 
 function updateWarnings(warnings, warningStatus, warningBanner) {
