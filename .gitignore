@@ -1,8 +1,9 @@
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
-
+*.zip
 # Environment
 .env
 .venv/

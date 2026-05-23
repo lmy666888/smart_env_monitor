@@ -28,7 +28,7 @@ API Gateway  →  ingest_sensor_data  →  DynamoDB SensorData
 Flask /api/data ─────────┘  →  Browser (Chart.js)
 ```
 
-With `USE_AWS_BRAIN=true` (default), Flask does **not** recompute warnings or analysis—it forwards the Lambda payload.
+Flask is a **BFF only**: warnings, trend, and prediction are computed exclusively in **`get_dashboard_data` Lambda** (`source: aws_lambda`).
 
 ## Tech stack
 
@@ -87,7 +87,7 @@ cp .env.example .env
 python run.py
 ```
 
-1. Open http://127.0.0.1:5001/login — register, then sign in (or `DISABLE_AUTH=1` for local demos only).
+1. Open http://127.0.0.1:5001/login — register, then sign in (auth required in production).
 2. Dashboard polls `GET /api/data`, which calls AWS `GET /data`.
 
 ## Running with Sense HAT Emulator (recommended demo)
@@ -120,7 +120,8 @@ Browser: http://127.0.0.1:5001
 
 | Variable | Default | Notes |
 |----------|---------|--------|
-| `USE_AWS_BRAIN` | `true` | Proxy AWS for data, settings, auth |
+| `DEVICE_API_KEY` | — | Shared secret; sent as `X-DEVICE-KEY` on POST `/ingest` |
+| `SNS_TOPIC_ARN` | — | Lambda env: email alerts on warning/critical |
 | `ENABLE_BACKGROUND_COLLECTOR` | `false` | Off = cloud-only ingest via device scripts |
 | `DEVICE_ID` | `pi-001` | DynamoDB partition key for device |
 | `DEMO_MODE` / `MOCK_UPLOAD_ENABLED` | `false` | Required for `device/mock_uploader.py` |
@@ -203,10 +204,17 @@ Add figures here for your report, for example:
 4. AWS Console: DynamoDB item with `source: sense_emu`
 5. Temperature intelligence and chart panels
 
+## SNS email alerts
+
+Set on **`get_dashboard_data` Lambda** (not Flask):
+
+- `SNS_TOPIC_ARN` — subscribe your email to the topic in AWS Console
+- `ALERT_COOLDOWN_SECONDS` — default 600 (10 minutes per device/level)
+- `ALERT_STATE_TABLE_NAME` — optional DynamoDB table (partition key `alert_key`) for cooldown across Lambda cold starts
+
 ## Future improvements
 
 - MQTT / AWS IoT Core ingest path
-- SNS or email alerts on warning level
 - Per-user device ownership in DynamoDB
 - Automated tests against mocked API Gateway responses
 - Infrastructure as Code for the full stack (not only settings routes)
@@ -219,4 +227,4 @@ Add figures here for your report, for example:
 
 ## Assignment note
 
-SQLite and `services/dashboard_service.py` are not the production source of truth. Authoritative warnings and analysis come from **`get_dashboard_data` Lambda** when `USE_AWS_BRAIN=true`.
+Authoritative warnings and analysis come only from **`get_dashboard_data` Lambda** (`analysis_source: aws_lambda`). Flask does not import `lambda/shared` for brain logic.

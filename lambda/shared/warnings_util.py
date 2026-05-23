@@ -42,6 +42,27 @@ def generate_warnings(latest: Any, settings: Any) -> List[str]:
         (warnings.append(f"Pressure too high ({pressure:.2f} hPa)"))
 
     return warnings
+
+
+def _severity_level(warnings: List[str]) -> str:
+    if not warnings:
+        return "normal"
+    if warnings == ["No data available."] or warnings == ["Invalid sensor data or settings."]:
+        return "error"
+    kinds = set()
+    for w in warnings:
+        wl = w.lower()
+        if "temperature" in wl:
+            kinds.add("t")
+        if "humidity" in wl:
+            kinds.add("h")
+        if "pressure" in wl:
+            kinds.add("p")
+    if len(warnings) >= 3 or len(kinds) >= 2:
+        return "critical"
+    return "warning"
+
+
 def get_warning_status(latest: Any, settings: Any) -> Dict[str, object]:
     """build warning status"""
     warnings = generate_warnings(latest, settings)
@@ -51,16 +72,15 @@ def get_warning_status(latest: Any, settings: Any) -> Dict[str, object]:
             "has_warning": True,
             "count": len(warnings),
             "messages": warnings,
-            "level": "error"
+            "level": "error",
         }
 
-
-
+    level = _severity_level(warnings)
     return {
         "has_warning": len(warnings) > 0,
         "count": len(warnings),
         "messages": warnings,
-        "level": "warning" if warnings else "normal"
+        "level": level if warnings else "normal",
     }
 
 

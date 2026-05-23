@@ -30,20 +30,17 @@ DASHBOARD_CLOUD_TIMEOUT = float(
     os.getenv("DASHBOARD_CLOUD_TIMEOUT", os.getenv("CLOUD_TIMEOUT_SECONDS", "15"))
 )
 
-USE_AWS_BRAIN = os.getenv("USE_AWS_BRAIN", "true").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+# AWS Lambda is the only dashboard brain (Flask is BFF only).
+USE_AWS_BRAIN = True
 
-# Optional: attempt SQLite/local analysis when AWS /data is unreachable.
-LOCAL_FALLBACK_ON_AWS_ERROR = os.getenv("LOCAL_FALLBACK_ON_AWS_ERROR", "false").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+# Deprecated — local brain fallback removed from Flask routes.
+LOCAL_FALLBACK_ON_AWS_ERROR = False
+
+# Shared secret for POST /ingest (header X-DEVICE-KEY). Empty = ingest auth disabled.
+DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "").strip()
+
+# SNS topic for email alerts from get_dashboard_data (optional).
+SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "").strip()
 
 # Flask background upload loop (sensor.collector). Default off for cloud demo mode.
 ENABLE_BACKGROUND_COLLECTOR = os.getenv("ENABLE_BACKGROUND_COLLECTOR", "false").strip().lower() in {

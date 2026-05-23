@@ -161,6 +161,12 @@ class CloudAPIClient:
         to = float(timeout if timeout is not None else self._cfg.DASHBOARD_CLOUD_TIMEOUT)
         return (to, to)
 
+    def _device_key_headers(self) -> Dict[str, str]:
+        key = str(getattr(self._cfg, "DEVICE_API_KEY", "") or cloud_config.DEVICE_API_KEY or "").strip()
+        if key:
+            return {"X-DEVICE-KEY": key}
+        return {}
+
     def request_json(
         self,
         method: str,
@@ -170,6 +176,7 @@ class CloudAPIClient:
         json_body: Optional[Dict[str, Any]] = None,
         timeout: Optional[float] = None,
         error_code: str = "AWS_API_ERROR",
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Perform HTTP request and return parsed JSON dict.
@@ -177,6 +184,11 @@ class CloudAPIClient:
         Raises CloudClientError on transport failure or non-2xx (unless body is JSON error).
         """
         to = self._timeout_tuple() if timeout is None else (float(timeout), float(timeout))
+        headers: Dict[str, str] = {}
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+        if extra_headers:
+            headers.update(extra_headers)
         try:
             resp = self._session.request(
                 method.upper(),
@@ -184,7 +196,7 @@ class CloudAPIClient:
                 params=params,
                 json=json_body,
                 timeout=to,
-                headers={"Content-Type": "application/json"} if json_body is not None else None,
+                headers=headers or None,
             )
         except requests.RequestException as exc:
             logger.warning("%s %s failed: %s", method.upper(), url, exc)
@@ -269,8 +281,15 @@ class CloudAPIClient:
         if not url:
             logger.error("AWS_INGEST_URL is empty; cannot upload.")
             return {"success": False, "message": "Ingest URL not configured.", "error_code": "INGEST_URL_UNCONFIGURED"}
+        extra_headers = self._device_key_headers()
         try:
-            return self.request_json("POST", url, json_body=payload, error_code="INGEST_HTTP_ERROR")
+            return self.request_json(
+                "POST",
+                url,
+                json_body=payload,
+                error_code="INGEST_HTTP_ERROR",
+                extra_headers=extra_headers or None,
+            )
         except CloudClientError as exc:
             logger.warning("Cloud POST /ingest failed: %s", exc)
             return {

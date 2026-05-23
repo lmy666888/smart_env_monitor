@@ -24,6 +24,7 @@ from boto3.dynamodb.conditions import Key
 
 from shared.analysis_service import analyze_temperature_trend
 from shared.dynamo_settings import load_settings
+from shared.alert_service import maybe_send_warning_alert
 from shared.warnings_util import (
     generate_warnings,
     get_warning_status,
@@ -148,18 +149,31 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         )
         latest.setdefault("source", sensor_backend)
 
+    # SNS email (non-blocking for dashboard response).
+    if latest and isinstance(warning_status, dict):
+        maybe_send_warning_alert(
+            device_id=device_id,
+            latest=latest,
+            warnings=warnings if isinstance(warnings, list) else [],
+            warning_status=warning_status,
+        )
+
     logger.info(
-        "get_dashboard_data device_id=%s sensor_backend=%s points=%s",
+        "get_dashboard_data device_id=%s sensor_backend=%s points=%s level=%s",
         device_id,
         sensor_backend,
         len(sensor_data),
+        warning_status.get("level") if isinstance(warning_status, dict) else None,
     )
 
     return _build_response(
         200,
         {
             "success": True,
-            "source": "aws",
+            "source": "aws_lambda",
+            "analysis_source": "aws_lambda",
+            "warnings_source": "aws_lambda",
+            "settings_source": "aws_lambda",
             "sensor_data": sensor_data,
             "latest": latest,
             "sensor_backend": sensor_backend,

@@ -140,6 +140,7 @@ function isCloudPayload(data) {
     return (
         data.data_source === "CLOUD" ||
         data.source === "aws" ||
+        data.source === "aws_lambda" ||
         (data.cloud && data.cloud.data_source === "CLOUD")
     );
 }
@@ -208,7 +209,7 @@ async function fetchData() {
         const statusLabel =
             data.data_source === "LOCAL_FALLBACK"
                 ? "Degraded (local fallback)"
-                : data.source === "aws"
+                : data.source === "aws" || data.source === "aws_lambda"
                   ? "Online (AWS Brain)"
                   : "Online";
         updateSystemStatus(statusLabel);

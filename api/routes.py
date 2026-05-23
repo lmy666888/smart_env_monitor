@@ -1,4 +1,4 @@
-"""REST JSON routes under ``/api/*`` — thin proxies to AWS API Gateway (AWS Brain)."""
+"""REST JSON routes under ``/api/*`` — thin proxies to AWS API Gateway (BFF)."""
 
 from __future__ import annotations
 
@@ -17,11 +17,9 @@ from api.auth import (
 )
 from cloud.client import CloudAPIClient, CloudClientError
 from config import get_config
+from config.auth_utils import is_auth_disabled
 from sensor import runtime as rt
-from sensor.reader import get_sensor_source_name
 from services.aws_proxy import aws_unavailable_error, build_aws_dashboard_response
-from services.dashboard_service import build_dashboard_payload
-from services.local_fallback import build_local_fallback_payload
 from services.settings_normalize import normalize_settings_dict
 
 logger = logging.getLogger("smart_env_monitor.api.routes")
@@ -33,7 +31,7 @@ def login_required(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         cfg = current_app.config.get("CONFIG_CLASS", get_config())
-        if getattr(cfg, "DISABLE_AUTH", False):
+        if is_auth_disabled(cfg):
             return view_func(*args, **kwargs)
         if not is_logged_in():
             if request.path.startswith("/api/"):
@@ -108,54 +106,42 @@ def validate_ingest_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     }
     if data.get("timestamp"):
         out["timestamp"] = str(data["timestamp"])
+    if data.get("source"):
+        out["source"] = str(data["source"])
     return out
 
 
 @api_bp.route("/data")
 @login_required
 def api_data():
-    """Proxy AWS GET /data — warnings and analysis come from Lambda."""
+    """Proxy AWS GET /data — warnings and analysis from Lambda only."""
     cfg = _cfg()
     device_id = request.args.get("device_id") or getattr(cfg, "DEVICE_ID", None)
 
-    if getattr(cfg, "USE_AWS_BRAIN", True):
-        try:
-            logger.info("[DEBUG] /api/data source=CLOUD (calling AWS GET /data) device_id=%s", device_id)
-            payload = build_aws_dashboard_response(current_app, _cloud(), device_id=device_id)
-            return jsonify(payload)
-        except CloudClientError as exc:
-            logger.warning("[DEBUG] /api/data AWS GET /data failed: %s", exc)
-            if getattr(cfg, "LOCAL_FALLBACK_ON_AWS_ERROR", False):
-                logger.warning("[DEBUG] /api/data source=LOCAL_FALLBACK (LOCAL_FALLBACK_ON_AWS_ERROR=1)")
-                body = build_local_fallback_payload(current_app, error_message=str(exc))
-                body["data_source"] = "LOCAL_FALLBACK"
-                return jsonify(body), 503
-            err = aws_unavailable_error(exc)
-            err.update(
-                {
-                    "latest": None,
-                    "settings": None,
-                    "warnings": [],
-                    "warning_status": {"has_warning": False, "count": 0, "messages": [], "level": "error"},
-                    "warning_banner": str(exc),
-                    "analysis": {
-                        "spike_drop": "Unavailable — AWS API unreachable.",
-                        "trend": "Unavailable — AWS API unreachable.",
-                        "prediction": "Unavailable — AWS API unreachable.",
-                    },
-                    "chart_labels": [],
-                    "chart_values": [],
-                    "sensor_source": get_sensor_source_name(),
-                    "runtime": dict(rt.runtime_state),
-                }
-            )
-            return jsonify(err), 503
-
-    logger.warning("[DEBUG] /api/data source=LOCAL_FALLBACK (USE_AWS_BRAIN=false)")
-    payload = build_dashboard_payload(current_app, _cloud(), device_id=device_id)
-    payload["data_source"] = "LOCAL_FALLBACK"
-    status = 200 if payload.get("success", True) else 503
-    return jsonify(payload), status
+    try:
+        payload = build_aws_dashboard_response(current_app, _cloud(), device_id=device_id)
+        return jsonify(payload)
+    except CloudClientError as exc:
+        logger.warning("/api/data AWS GET /data failed: %s", exc)
+        err = aws_unavailable_error(exc)
+        err.update(
+            {
+                "latest": None,
+                "settings": None,
+                "warnings": [],
+                "warning_status": {"has_warning": False, "count": 0, "messages": [], "level": "error"},
+                "warning_banner": str(exc),
+                "analysis": {
+                    "spike_drop": "Unavailable — AWS API unreachable.",
+                    "trend": "Unavailable — AWS API unreachable.",
+                    "prediction": "Unavailable — AWS API unreachable.",
+                },
+                "chart_labels": [],
+                "chart_values": [],
+                "runtime": dict(rt.runtime_state),
+            }
+        )
+        return jsonify(err), 503
 
 
 @api_bp.route("/ingest", methods=["POST"])
@@ -194,12 +180,7 @@ def api_settings():
             result = _cloud().get_settings(device_id=device_id)
         except CloudClientError as exc:
             logger.warning("Cloud settings GET failed: %s", exc)
-            return build_error_response(
-                str(exc),
-                502,
-                fallback_used=False,
-                **exc.to_flask_extra(),
-            )
+            return build_error_response(str(exc), 502, fallback_used=False, **exc.to_flask_extra())
         if not result.get("success", True):
             return build_error_response(
                 result.get("message", "Cloud returned unsuccessful GET /settings"),
@@ -222,26 +203,16 @@ def api_settings():
         return build_error_response(str(exc))
 
     try:
-        logger.info(
-            "[DEBUG] DynamoDB settings proxy POST device_id:%s payload_keys=%s",
-            device_id,
-            list(values.keys()),
-        )
         result = _cloud().post_settings(values, device_id=device_id)
     except CloudClientError as exc:
         logger.warning("Cloud settings POST failed: %s", exc)
         return build_error_response(str(exc), 502, fallback_used=False, **exc.to_flask_extra())
 
     if not result.get("success", True):
-        return build_error_response(
-            result.get("message", "Update failed"),
-            502,
-            upstream_json=result,
-        )
+        return build_error_response(result.get("message", "Update failed"), 502, upstream_json=result)
+
     settings_out = result.get("settings")
     if isinstance(settings_out, dict):
-        from sensor import runtime as rt
-
         normalized = normalize_settings_dict(settings_out)
         if normalized:
             settings_out = normalized
@@ -256,7 +227,7 @@ def api_settings():
 @api_bp.route("/simulate", methods=["POST"])
 @login_required
 def api_simulate():
-    """Manual reading upload — forwards to AWS POST /ingest (alias for /api/ingest)."""
+    """Manual reading upload — forwards to AWS POST /ingest."""
     data = request.get_json(silent=True) or {}
     try:
         payload = validate_ingest_payload(data)
@@ -312,14 +283,13 @@ def api_health():
 
     body = {
         "success": cloud_ok,
-        "source": "aws" if cloud_ok else "aws",
+        "source": "aws",
         "fallback_used": False,
         "aws_health": aws_health,
-        "sensor_source": get_sensor_source_name(),
         "worker_alive": rt.runtime_state.get("collector_thread_alive", False),
         "cloud_data_endpoint_reachable": _cloud().ping_data_endpoint(timeout=3.0),
         "aws_api_base": getattr(cfg, "AWS_API_BASE", ""),
-        "use_aws_brain": getattr(cfg, "USE_AWS_BRAIN", True),
+        "auth_required": not is_auth_disabled(cfg),
     }
     if not cloud_ok:
         body["error_code"] = aws_health.get("error_code", "AWS_API_UNAVAILABLE")
@@ -331,10 +301,10 @@ def api_health():
 def api_auth_status():
     cfg = _cfg()
     return build_success_response(
-        disable_auth=bool(getattr(cfg, "DISABLE_AUTH", False)),
+        disable_auth=is_auth_disabled(cfg),
         logged_in=is_logged_in(),
         username=get_current_username() if is_logged_in() else None,
-        use_aws_brain=getattr(cfg, "USE_AWS_BRAIN", True),
+        auth_required=not is_auth_disabled(cfg),
     )
 
 

@@ -62,10 +62,13 @@ class Config:
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
+    # Only honoured when FLASK_ENV=development (see config.auth_utils.is_auth_disabled).
     DISABLE_AUTH = _to_bool(os.getenv("DISABLE_AUTH"), False)
 
-    USE_AWS_BRAIN = cloud_config.USE_AWS_BRAIN
-    LOCAL_FALLBACK_ON_AWS_ERROR = cloud_config.LOCAL_FALLBACK_ON_AWS_ERROR
+    USE_AWS_BRAIN = True
+    LOCAL_FALLBACK_ON_AWS_ERROR = False
+    DEVICE_API_KEY = cloud_config.DEVICE_API_KEY
+    SNS_TOPIC_ARN = cloud_config.SNS_TOPIC_ARN
     ENABLE_BACKGROUND_COLLECTOR = cloud_config.ENABLE_BACKGROUND_COLLECTOR
     DEMO_MODE = cloud_config.DEMO_MODE
     MOCK_UPLOAD_ENABLED = cloud_config.MOCK_UPLOAD_ENABLED

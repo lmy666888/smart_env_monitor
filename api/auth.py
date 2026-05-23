@@ -98,55 +98,33 @@ def build_login_result(username: str, password: str) -> Dict[str, object]:
     username = str(username or "").strip()
     password = str(password or "")
 
-    cfg = get_config()
-    if getattr(cfg, "USE_AWS_BRAIN", True):
-        try:
-            result = _cloud_client().post_login({"username": username, "password": password})
-        except CloudClientError as exc:
-            logger.warning("AWS login failed: %s", exc)
-            return {
-                "success": False,
-                "source": "aws",
-                "message": str(exc),
-                "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
-                "fallback_used": False,
-            }
-
-        if result.get("success"):
-            login_user(
-                str(result.get("username") or username),
-                token=result.get("token"),
-            )
-            return {
-                "success": True,
-                "source": "aws",
-                "message": result.get("message", "Login successful."),
-                "username": get_current_username(),
-            }
-
+    try:
+        result = _cloud_client().post_login({"username": username, "password": password})
+    except CloudClientError as exc:
+        logger.warning("AWS login failed: %s", exc)
         return {
             "success": False,
             "source": "aws",
-            "message": result.get("message", "Invalid username or password."),
-            "error_code": result.get("error_code"),
+            "message": str(exc),
+            "error_code": exc.error_code or "AWS_API_UNAVAILABLE",
             "fallback_used": False,
         }
 
-    if verify_credentials_local(username, password):
-        login_user(username)
+    if result.get("success"):
+        login_user(str(result.get("username") or username), token=result.get("token"))
         return {
             "success": True,
-            "source": "local_fallback",
-            "message": "Login successful (local auth — AWS Brain disabled).",
+            "source": "aws",
+            "message": result.get("message", "Login successful."),
             "username": get_current_username(),
-            "fallback_used": True,
         }
 
     return {
         "success": False,
-        "source": "local_fallback",
-        "message": "Invalid username or password.",
-        "fallback_used": True,
+        "source": "aws",
+        "message": result.get("message", "Invalid username or password."),
+        "error_code": result.get("error_code"),
+        "fallback_used": False,
     }
 
 
@@ -161,15 +139,6 @@ def build_register_result(username: str, email: str, password: str) -> Dict[str,
             "source": "aws",
             "message": "Username, email and password are required.",
             "error_code": "validation_error",
-        }
-
-    cfg = get_config()
-    if not getattr(cfg, "USE_AWS_BRAIN", True):
-        return {
-            "success": False,
-            "source": "local_fallback",
-            "message": "Registration requires AWS Brain (USE_AWS_BRAIN=true).",
-            "fallback_used": True,
         }
 
     try:

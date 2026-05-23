@@ -31,7 +31,9 @@ Copy `.env.example` to `.env`. Minimum for cloud mode:
 - `SECRET_KEY` — Flask session secret
 - `DEVICE_ID` — usually `pi-001`
 
-Optional: `DISABLE_AUTH=1` for quick UI testing on a trusted machine.
+Auth is **required** by default. To skip login locally only: `FLASK_ENV=development` and `DISABLE_AUTH=1`.
+
+Set `DEVICE_API_KEY` in `.env` and on the **ingest Lambda** (`DEVICE_API_KEY` env). Device uploaders send header `X-DEVICE-KEY`.
 
 ## Run the dashboard
 

@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from api.auth import build_login_result, get_current_username, is_logged_in, logout_user
 from config import get_config
+from config.auth_utils import is_auth_disabled
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -16,7 +17,7 @@ def login_required(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         cfg = current_app.config.get("CONFIG_CLASS", get_config())
-        if getattr(cfg, "DISABLE_AUTH", False):
+        if is_auth_disabled(cfg):
             return view_func(*args, **kwargs)
         if not is_logged_in():
             return redirect(url_for("pages.login"))
@@ -28,7 +29,7 @@ def login_required(view_func):
 @pages_bp.route("/login", methods=["GET", "POST"])
 def login():
     cfg = current_app.config.get("CONFIG_CLASS", get_config())
-    if getattr(cfg, "DISABLE_AUTH", False):
+    if is_auth_disabled(cfg):
         return redirect(url_for("pages.dashboard"))
 
     if request.method == "GET":
@@ -61,7 +62,7 @@ def logout():
 @pages_bp.route("/")
 def home():
     cfg = current_app.config.get("CONFIG_CLASS", get_config())
-    if getattr(cfg, "DISABLE_AUTH", False) or is_logged_in():
+    if is_auth_disabled(cfg) or is_logged_in():
         return redirect(url_for("pages.dashboard"))
     return redirect(url_for("pages.login"))
 

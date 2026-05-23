@@ -75,12 +75,20 @@ def _read_emulator() -> Optional[Tuple[float, float, float]]:
     return temperature, humidity, pressure
 
 
+def _ingest_headers() -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    key = os.environ.get("DEVICE_API_KEY", "").strip()
+    if key:
+        headers["X-DEVICE-KEY"] = key
+    return headers
+
+
 def _post_ingest(url: str, payload: Dict[str, Any]) -> Tuple[int, str]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=_ingest_headers(),
         method="POST",
     )
     try:

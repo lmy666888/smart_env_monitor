@@ -16,6 +16,7 @@ Expected request body:
 
 Environment variables:
     SENSOR_TABLE_NAME   DynamoDB table to write into.
+    DEVICE_API_KEY      Optional shared secret; clients send header X-DEVICE-KEY.
 """
 
 import json
@@ -23,7 +24,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import boto3
 
@@ -31,6 +32,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 SENSOR_TABLE_NAME = os.environ.get("SENSOR_TABLE_NAME", "SensorData")
+DEVICE_API_KEY = os.environ.get("DEVICE_API_KEY", "").strip()
 
 _dynamodb = boto3.resource("dynamodb")
 
@@ -41,11 +43,40 @@ def _build_response(status_code: int, payload: Dict[str, Any]) -> Dict[str, Any]
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type,X-DEVICE-KEY",
             "Access-Control-Allow-Methods": "POST,OPTIONS",
         },
         "body": json.dumps(payload),
     }
+
+
+def _header_lookup(event: Dict[str, Any], name: str) -> Optional[str]:
+    headers = (event or {}).get("headers") or {}
+    if not isinstance(headers, dict):
+        return None
+    target = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == target:
+            return str(value) if value is not None else None
+    return None
+
+
+def _verify_device_key(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return 403 response if DEVICE_API_KEY is set and header mismatch."""
+    if not DEVICE_API_KEY:
+        return None
+    provided = (_header_lookup(event, "X-DEVICE-KEY") or "").strip()
+    if provided != DEVICE_API_KEY:
+        logger.warning("Ingest rejected: invalid or missing X-DEVICE-KEY.")
+        return _build_response(
+            403,
+            {
+                "success": False,
+                "message": "Forbidden: invalid device API key.",
+                "error_code": "DEVICE_KEY_FORBIDDEN",
+            },
+        )
+    return None
 
 
 def _parse_body(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -107,6 +138,10 @@ def _validate_reading(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     logger.info("ingest_sensor_data invoked.")
+
+    denied = _verify_device_key(event)
+    if denied is not None:
+        return denied
 
     payload = _parse_body(event)
 
