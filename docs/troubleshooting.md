@@ -1,39 +1,46 @@
 # Troubleshooting
 
-## Browser shows errors or blank dashboard
+## Dashboard blank or error banner
 
-- Run the **Flask** app (`python run.py`) and open **http://127.0.0.1:5001/dashboard** — the UI is served from `templates/` + `static/`, not from a separate static tree.
-- In DevTools → Network, inspect **`/api/data`** (Flask → AWS). Failures there mirror API Gateway / Lambda issues; check CloudWatch for the Lambdas behind `/data` and `/ingest`.
+- Confirm Flask is running (`python run.py`) and you open http://127.0.0.1:5001/dashboard.
+- DevTools → Network → `/api/data`. A 5xx here usually means API Gateway or Lambda failed upstream.
+- Check CloudWatch logs for `get_dashboard_data` and `ingest_sensor_data`.
 
-## Latest values stuck at `--`
+## Readings show `--`
 
-- The `sensor_data` array in the AWS response might be empty. Inspect the JSON from `/api/data` (or call your API Gateway `/data` URL directly).
-- Invalid readings are dropped server-side in Lambda ingest validation.
+- `/data` may return empty `sensor_data`. Call your API Gateway `/data?device_id=pi-001` with curl.
+- Run an uploader (`device/emulator_uploader.py`) and confirm a new row in DynamoDB.
 
-## Settings revert to 0 / 40 after “Save to cloud”
+## Cloud freshness or “Last device upload” wrong
 
-- **POST /settings returns 500 ValidationException:** DeviceSettings partition key must be **`device_id`** (e.g. `pi-001`), not legacy `id=global`. Redeploy `settings_handler` + `get_dashboard_data` with updated `shared/dynamo_settings.py`.
-- **POST succeeded but GET /data still shows defaults:** ensure every Lambda uses `SETTINGS_TABLE_NAME=DeviceSettings` and the same `device_id` as `DEVICE_ID` / query param.
-- Verify in DynamoDB Console → **DeviceSettings** → item `{ "device_id": "pi-001", "temp_min": ... }`.
-- Test directly: `curl -s "$BASE/settings" | jq .` after saving.
-- Redeploy `settings_handler` and `get_dashboard_data` zips including `shared/dynamo_settings.py`.
+- Both use `latest.timestamp` from `/data`. Hard-refresh the browser (cache).
+- If timestamp is old, the emulator uploader may be stopped.
 
-## Warning banner stays orange when readings look fine
+## Settings reset to 0 / 40 after save
 
-- The `settings` block from DynamoDB might be too strict. Adjust thresholds via **Save to cloud** (Flask `/api/settings` → AWS `/settings`) or edit DynamoDB.
+- DeviceSettings partition key must be **`device_id`** (e.g. `pi-001`), not legacy `id=global`.
+- Redeploy `settings_handler` and `get_dashboard_data` with current `lambda/shared/dynamo_settings.py`.
+- Verify in DynamoDB Console and with `curl "$BASE/settings"`.
 
-## Chart not rendering
+## Warnings when values look normal
 
-- Confirm the Chart.js CDN URL in `templates/index.html` is reachable.
-- The page must include `<canvas id="tempChart">` (see `templates/index.html`).
+- Thresholds in DynamoDB may be stricter than you expect. Relax via **Save to cloud** or POST `/settings`.
 
-## Legacy / SQLite / Sense HAT
+## Chart missing
 
-- Optional SQLite mirror: `USE_SQLITE_CACHE=1` uses `legacy/database.py`.
-- LED matrix helpers: `legacy/display_service.py`. See `legacy/README.md`.
+- Chart.js loads from CDN in `templates/index.html` — needs network access.
+- Confirm `<canvas id="tempChart">` is present.
 
-## Device sender cannot post readings
+## POST /settings returns Not Found
 
-- Verify `AWS_INGEST_URL` is set (see `config/settings.py`; older docs may mention `INGEST_ENDPOINT`).
-- Confirm the device has internet access.
-- Check CloudWatch logs of `ingest_sensor_data` for 4xx validation errors.
+- API Gateway route missing. See `infrastructure/AWS_HTTP_API_SETTINGS_ROUTES.md`.
+
+## Ingest fails
+
+- Check `AWS_INGEST_URL` / base URL in `.env`.
+- CloudWatch for `ingest_sensor_data` validation errors (humidity must be 0–100, etc.).
+
+## Optional legacy pieces
+
+- `USE_SQLITE_CACHE=1` writes to `legacy/database.py` SQLite — not the cloud source of truth.
+- Sense HAT LED uses `legacy/display_service.py` and cached settings from cloud fetch.

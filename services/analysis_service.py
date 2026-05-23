@@ -1,25 +1,15 @@
-"""
-DEPRECATED for production dashboard paths.
-
-Trend/spike/prediction in production are computed by AWS Lambda
-``get_dashboard_data`` (see ``lambda/shared/analysis_service.py``).
-This module is used only by :mod:`services.local_fallback` when AWS is down.
-"""
+"""Local fallback analysis only; production uses lambda/shared/analysis_service."""
 
 import logging
 from typing import Dict, List, Any, Optional
 from config import Config
 
-# logger
 logger = logging.getLogger("smart_env_monitor.analysis")
 
-# minimum points for trend check
 MIN_TREND_POINTS = 5
 
 
-# get temperature list safely
 def _safe_temperature_list(rows: List[Any]) -> List[float]:
-    """extract temperature values"""
     temperatures = []
     for row in rows:
         try:
@@ -31,7 +21,6 @@ def _safe_temperature_list(rows: List[Any]) -> List[float]:
 
 
 
-# detect sudden change
 def detect_spike_or_drop(
     temperatures: List[float],
     threshold: float = Config.SPIKE_THRESHOLD
@@ -50,7 +39,6 @@ def detect_spike_or_drop(
 
     return "No sudden spike or drop detected."
 
-# detect overall trend (mirrors lambda/shared/analysis_service.py)
 def detect_trend(temperatures: List[float]) -> str:
     """Trend from recent readings — same rules as AWS Lambda brain."""
     if len(temperatures) < MIN_TREND_POINTS:
@@ -87,7 +75,6 @@ def detect_trend(temperatures: List[float]) -> str:
 
 
 
-# predict threshold crossing
 def predict_threshold_exceedance(
     temperatures: List[float],
     temp_min: float,
@@ -132,7 +119,6 @@ def predict_threshold_exceedance(
 
 
 
-# main entry for analysis
 def analyze_temperature_trend(
     rows: List[Any],
     settings: Optional[Any],

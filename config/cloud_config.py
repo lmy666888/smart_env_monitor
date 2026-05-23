@@ -1,9 +1,4 @@
-"""
-Central AWS API Gateway configuration (AWS Brain mode).
-
-All production ingestion, storage, analysis, warnings, and authentication
-are authoritative in AWS Lambda + DynamoDB. Flask proxies these endpoints.
-"""
+"""API Gateway URLs and feature flags (AWS is authoritative for brain logic)."""
 
 from __future__ import annotations
 

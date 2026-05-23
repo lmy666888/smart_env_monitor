@@ -1,52 +1,53 @@
 # Test Plan
 
-The dashboard is the **Flask** app (`python run.py`). It polls **`/api/data`**, which proxies your API Gateway **`/data`** response. The following manual tests assume the stack is running locally (default **http://127.0.0.1:5001**).
+Manual checks for the Flask dashboard and AWS backend. Default URL: http://127.0.0.1:5001
 
-## 1. Happy-path test
+## 1. Happy path
 
-1. Run `python run.py` (use `export DISABLE_AUTH=1` if you want to skip login).
-2. Open **http://127.0.0.1:5001/login**, sign in with `admin / admin123` when auth is enabled.
-3. **Expected**: dashboard renders, `/api/data` returns 200 in DevTools, readings and chart populate.
+1. Run `python run.py` with valid `.env` AWS URLs.
+2. Run `python3 device/emulator_uploader.py` (or ingest via curl).
+3. Open dashboard, sign in if auth enabled.
+4. **Expected:** `/api/data` 200, readings and chart update, freshness Live/Recent.
 
-## 2. Threshold warning test
+## 2. Threshold warnings
 
-1. Tighten thresholds via **Save to cloud** or call the AWS **`/settings`** Lambda with stricter values (e.g. lower `temp_max`).
-2. Reload the dashboard.
-3. **Expected**: warning banner and list reflect threshold violations for the latest cloud reading.
+1. Lower `temp_max` (or other limits) via **Save to cloud**.
+2. Wait for next poll.
+3. **Expected:** warning level, list, and banner show violations.
 
-## 3. Empty `sensor_data` test
+## 3. Empty sensor data
 
-1. Temporarily clear the DynamoDB sensor table (or return an empty `sensor_data` from `/data`).
-2. **Expected**: empty-state / placeholder readings, chart empty or minimal, no uncaught JS errors.
+1. Use an empty DynamoDB table or device with no rows.
+2. **Expected:** empty state or placeholders; no JavaScript crash.
 
-## 4. Malformed payload test
+## 4. Invalid ingest
 
-1. Ingest a reading that fails Lambda validation (e.g. non-numeric temperature).
-2. **Expected**: row rejected at ingest; dashboard still renders prior valid cloud data.
+1. POST invalid JSON to `/ingest` (e.g. humidity 150).
+2. **Expected:** 400 from Lambda; dashboard still shows previous valid data.
 
-## 5. Network failure test
+## 5. Network / AWS down
 
-1. Disable network or set a bogus `AWS_DATA_URL` in `.env`.
-2. **Expected**: error handling in the UI, Flask logs show cloud fetch failures for `/data`.
+1. Set invalid `AWS_DATA_URL` or block network.
+2. **Expected:** error UI; with `LOCAL_FALLBACK_ON_AWS_ERROR=true`, degraded local payload instead.
 
-## 6. Spike detection test
+## 6. Spike detection
 
-1. Push a reading that is `>3 °C` higher than the previous reading
-   (using `simulate_sensor_data` Lambda with a different base temperature).
-2. **Expected**: the "Spike / Drop Detection" box reports a spike with the
-   delta value.
+1. Ingest two readings where temperature jumps more than the spike threshold (default 3°C).
+2. **Expected:** spike message in Temperature intelligence.
 
-## 7. Chart edge cases
+## 7. Chart edge case
 
-1. Trigger a refresh when only one valid reading is present.
-2. **Expected**: the chart still renders without throwing an error and
-   shows a single data point per series.
+1. Only one point in `sensor_data`.
+2. **Expected:** chart renders a single point without error.
 
-## 8. Lambda unit smoke
-
-Each Lambda file can be executed directly for a quick local smoke test:
+## 8. Lambda smoke (optional)
 
 ```bash
 python lambda/health_check.py
-python lambda/get_dashboard_data.py   # requires AWS creds + tables
+python lambda/get_dashboard_data.py   # needs AWS credentials + tables
 ```
+
+## 9. Settings round-trip
+
+1. Save custom thresholds in the UI.
+2. `curl` GET `/settings` and GET `/data` — **Expected:** same values in `settings` object.

@@ -1,32 +1,4 @@
-"""
-Sensor reader.
-
-Goals (read this first):
-
-* Never crash the Flask app or background worker because one sensor read
-  failed.
-* Avoid the well-known `OSError: Humidity Init Failed` cascade on
-  sense_emu by trying temperature methods in a safe order:
-  `get_temperature_from_pressure` first (which does **not** touch the
-  humidity sensor), then `get_temperature_from_humidity`, then plain
-  `get_temperature`.
-* Wrap every individual sensor read in its own try/except and fall back
-  to a reasonable physical default if that read fails.
-* If the emulator (or real HAT) cannot be initialised at all, the
-  initial backend label is ``mock`` and only mock readings are used.
-* On each poll, when a hardware instance exists, we read **raw** T/H/P from
-  the device with **no** per-field Config fallbacks. If any raw value is
-  missing or the combined triplet fails validation, that **single**
-  reading comes from the mock walker and ``get_sensor_source_name()``
-  returns ``mock`` for that cycle; the next poll tries the device again.
-* Throttle repeated identical errors so the log does not get flooded with
-  the same traceback every cycle.
-
-Sources reported via `get_sensor_source_name()` (last completed read):
-    - "real_sense_hat" : physical Sense HAT on a Raspberry Pi
-    - "sense_emu"      : Sense HAT desktop emulator
-    - "mock"           : built-in random-walk fallback (no valid device read this cycle)
-"""
+"""Sense HAT / sense_emu reads with safe fallbacks; sources: real_sense_hat, sense_emu, mock."""
 
 import logging
 import os
@@ -37,15 +9,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from config import Config
 
-# Database insert is no longer used from this module (cloud ingest in ``sensor.collector``).
-
 logger = logging.getLogger("smart_env_monitor.sensor")
 
-# ---------------------------------------------------------------------------
-# Backend detection
-# ---------------------------------------------------------------------------
-
-# Try importing the desktop emulator first (developer laptops).
 try:
     from sense_emu import SenseHat as _EmulatorSenseHat  # type: ignore
     EMULATOR_IMPORTED = True
@@ -67,10 +32,6 @@ SOURCE_EMULATOR = "sense_emu"
 SOURCE_MOCK = "mock"
 SOURCE_UNKNOWN = "unknown"
 
-# ---------------------------------------------------------------------------
-# Cached state
-# ---------------------------------------------------------------------------
-
 _sense_instance: Optional[Any] = None
 _active_source: str = SOURCE_UNKNOWN
 _init_attempted: bool = False
@@ -88,10 +49,6 @@ _mock_state: Dict[str, float] = {
     "pressure": 1013.0,
 }
 
-
-# ---------------------------------------------------------------------------
-# Throttled logging helper
-# ---------------------------------------------------------------------------
 
 def _throttled_warning(key: str, message: str, *args: Any) -> None:
     """
@@ -112,10 +69,6 @@ def _throttled_warning(key: str, message: str, *args: Any) -> None:
         logger.warning(message, *args)
         _last_error_logged_at[key] = now
 
-
-# ---------------------------------------------------------------------------
-# Backend initialisation
-# ---------------------------------------------------------------------------
 
 def _init_sense_instance() -> Tuple[Optional[Any], str]:
     """
@@ -189,10 +142,6 @@ def is_sense_hat_available() -> bool:
     return get_sense_instance() is not None
 
 
-# ---------------------------------------------------------------------------
-# Validation / normalisation
-# ---------------------------------------------------------------------------
-
 def validate_sensor_values(temperature: Any, humidity: Any, pressure: Any) -> bool:
     """Coerce values to float and check they sit in a physically plausible range."""
     try:
@@ -220,10 +169,6 @@ def normalize_sensor_values(
         "pressure": round(float(pressure), 2),
     }
 
-
-# ---------------------------------------------------------------------------
-# Safe individual sensor reads
-# ---------------------------------------------------------------------------
 
 def _safe_call(error_key: str, fn: Callable[[], float]) -> Optional[float]:
     """Invoke `fn`, returning a float or None (with throttled warning) on error."""
@@ -289,10 +234,6 @@ def _raw_pressure(sense: Any) -> Optional[float]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Mock source (random walk near plausible values)
-# ---------------------------------------------------------------------------
-
 def _mock_upload_allowed() -> bool:
     """True only when explicit demo env flags permit mock sensor substitution."""
     return bool(getattr(Config, "DEMO_MODE", False)) and bool(
@@ -315,10 +256,6 @@ def _read_from_mock() -> Dict[str, float]:
         _mock_state["pressure"],
     )
 
-
-# ---------------------------------------------------------------------------
-# Public read entry points
-# ---------------------------------------------------------------------------
 
 def read_from_emulator() -> Optional[Dict[str, float]]:
     """

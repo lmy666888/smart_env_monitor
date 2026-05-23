@@ -1,10 +1,4 @@
-"""
-AWS Brain proxy: pass through GET /data from API Gateway with minimal Flask metadata.
-
-Warnings, trend analysis, spike detection, and predictions come from Lambda
-``get_dashboard_data`` when present; otherwise computed via ``lambda/shared``
-(same code path as Lambda, NOT ``services/analysis_service``).
-"""
+"""Proxy GET /data from API Gateway; enrich only if Lambda omitted brain fields."""
 
 from __future__ import annotations
 

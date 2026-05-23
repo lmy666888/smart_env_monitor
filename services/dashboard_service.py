@@ -1,10 +1,4 @@
-"""
-DEPRECATED — Flask Brain dashboard assembly.
-
-Production uses :mod:`services.aws_proxy` (AWS Brain). This module re-exports
-``build_dashboard_payload`` for backward compatibility and delegates to AWS
-when ``USE_AWS_BRAIN`` is true; otherwise uses :mod:`services.local_fallback`.
-"""
+"""Dashboard payload router: AWS proxy when enabled, else local_fallback."""
 
 from __future__ import annotations
 

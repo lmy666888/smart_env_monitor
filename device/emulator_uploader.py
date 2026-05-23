@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-Standalone Sense HAT Emulator uploader (system Python + sense_emu).
-
-Use this for the final cloud demo instead of the Flask venv background collector.
-Posts validated readings directly to API Gateway POST /ingest with source=sense_emu.
-
-Run (system Python, not project venv):
-    python3 device/emulator_uploader.py
-
-Environment (optional):
-    AWS_INGEST_URL  — full ingest URL
-    AWS_API_BASE_URL — base URL; /ingest appended if AWS_INGEST_URL unset
-    DEVICE_ID       — default pi-001
-    UPLOAD_INTERVAL — seconds between posts (default 5)
-"""
+"""Post sense_emu readings to API Gateway /ingest (use system Python, not Flask venv)."""
 
 from __future__ import annotations
 

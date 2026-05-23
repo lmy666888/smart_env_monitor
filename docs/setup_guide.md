@@ -1,64 +1,76 @@
 # Setup Guide
 
-How to run **SMART_ENV_MONITOR** locally and how it maps to AWS.
+How to run the Smart Environment Monitor locally and connect it to your AWS API Gateway stack.
 
-## 1. Prerequisites
+## Prerequisites
 
-- Python 3.10+ (Flask dashboard + optional device sender).
-- A modern browser.
-- (Optional) AWS account if you redeploy Lambdas or change API Gateway.
+- Python 3.10 or newer
+- Modern browser
+- Deployed API Gateway + Lambda + DynamoDB (or use the course AWS account URL in `.env`)
 
-## 2. Project layout
+## Layout
 
-```
-smart_env_monitor/
-├── api/                 Flask app factory, REST `/api/*`, HTML pages (`pages` blueprint)
-├── cloud/               HTTP client for API Gateway
-├── config/              Settings (`config.settings`)
-├── sensor/              Sense HAT / emulator reads + cloud ingest collector
-├── device/              Standalone Pi uploader (`python -m device.device_sender`)
-├── services/            Dashboard payload, warnings, analysis
-├── templates/, static/  Flask dashboard (canonical UI)
-├── lambda/              Lambda source + `shared/` helpers for deploy zips
-├── legacy/              SQLite cache + Sense HAT LED helpers (see `legacy/README.md`)
-├── docs/                Documentation
-├── run.py               Preferred local entrypoint
-└── requirements.txt
-```
+| Folder | Role |
+|--------|------|
+| `api/` | Flask app, `/api/*` routes, HTML pages |
+| `cloud/` | HTTP client for API Gateway |
+| `config/` | Environment and URL settings |
+| `sensor/` | Sensor reader and optional background uploader |
+| `device/` | Standalone ingest scripts (emulator, Pi) |
+| `services/` | AWS proxy and optional local fallback |
+| `lambda/` | Source to zip and deploy to AWS |
+| `templates/`, `static/` | Dashboard UI |
+| `legacy/` | Optional SQLite + Sense HAT LED |
+| `run.py` | Start the Flask app |
 
-## 3. AWS endpoints
+## Environment
 
-Configure URLs via environment variables or `.env` (see `config/settings.py` and root `README.md`). Typical values include `AWS_DATA_URL`, `AWS_INGEST_URL`, and `AWS_SETTINGS_URL`.
+Copy `.env.example` to `.env`. Minimum for cloud mode:
 
-## 4. Running the Flask dashboard (recommended)
+- `AWS_API_BASE_URL` — API Gateway base (no trailing path)
+- `SECRET_KEY` — Flask session secret
+- `DEVICE_ID` — usually `pi-001`
+
+Optional: `DISABLE_AUTH=1` for quick UI testing on a trusted machine.
+
+## Run the dashboard
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-export DISABLE_AUTH=1             # optional, for quick local demos
 python run.py
 ```
 
-Open **http://127.0.0.1:5001/dashboard** (default port in `config.settings`).
+Open http://127.0.0.1:5001/dashboard (port from `config/settings.py`).
 
-The browser loads data through Flask (`/api/data`), which proxies DynamoDB-backed API Gateway responses.
+The UI calls `/api/data`, which proxies AWS `GET /data`.
 
-## 5. Alternate entrypoint
+## Sense HAT Emulator + cloud ingest
+
+1. `python3 -m sense_emu.gui`
+2. In another terminal: `python3 device/emulator_uploader.py`
+3. Flask: `ENABLE_BACKGROUND_COLLECTOR=false python run.py`
+
+Use system Python for step 2 so sense_emu matches your OS install.
+
+## Pi / alternate upload
+
+```bash
+export DEVICE_ID=pi-001
+python -m device.device_sender
+```
+
+Requires `AWS_INGEST_URL` or `AWS_API_BASE_URL` in the environment (see `config`).
+
+## Alternate Flask entry
 
 ```bash
 python -m legacy.app
 ```
 
-Same application as `run.py` (`create_app()`).
+Same `create_app()` as `run.py`.
 
-## 6. Device sender on a Pi
+## Redeploy Lambdas
 
-```bash
-pip install -r requirements.txt
-export AWS_INGEST_URL="https://<api-id>.execute-api.<region>.amazonaws.com/ingest"
-export DEVICE_ID="pi-001"
-python -m device.device_sender
-```
-
-Use the same venv and `config` / `cloud` defaults as on the laptop when possible.
+Zip each handler with `shared/` at the archive root. Set table names in Lambda environment variables to match your DynamoDB tables.

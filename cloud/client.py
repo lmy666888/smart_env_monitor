@@ -1,9 +1,4 @@
-"""
-HTTP client for API Gateway (AWS Brain).
-
-Proxies ingest, dashboard data, settings, authentication, and health checks.
-Uses ``requests`` with timeouts and retries.
-"""
+"""HTTP client for API Gateway (ingest, data, settings, auth, health)."""
 
 from __future__ import annotations
 

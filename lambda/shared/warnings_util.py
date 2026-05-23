@@ -1,8 +1,7 @@
 from typing import List, Dict, Any
-# generate warnings based on values
+
 
 def generate_warnings(latest: Any, settings: Any) -> List[str]:
-    """check warnings"""
     if not latest or not settings:
         return ["No data available."]
 

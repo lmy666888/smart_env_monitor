@@ -1,8 +1,15 @@
 # Attach GET + POST `/settings` to an existing API Gateway HTTP API
 
-Use this when `/data` and `/ingest` already work but **POST /settings** returns API Gateway’s plain `{"message":"Not Found"}` because no route exists.
+Use when `/data` and `/ingest` work but `/settings` returns `{"message":"Not Found"}`.
 
-## What to deploy in Lambda
+**Deploy checklist**
+
+1. Zip `settings_handler.py`, `shared/`, optional `update_settings.py` shim.
+2. Set handler `settings_handler.lambda_handler` and `SETTINGS_TABLE_NAME`.
+3. Apply `httpapi-settings-routes.yaml` (or the inline template below) with your `HttpApiId` and Lambda ARN.
+4. Verify with curl GET/POST `/settings` (JSON body, not bare Not Found).
+
+## Lambda package
 
 Package these files at the **zip root** (same layout as this repo’s `lambda/` folder):
 

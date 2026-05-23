@@ -1,10 +1,4 @@
-"""
-Compute dashboard brain fields using the same code as AWS Lambda (``lambda/shared``).
-
-Used only when GET /data from API Gateway omits warnings/analysis, or when
-settings on /data are stale defaults but ``settings_cache`` has saved thresholds.
-This is NOT ``services/analysis_service`` (Flask-local deprecated copy).
-"""
+"""Fill warnings/analysis from lambda/shared when /data payload is incomplete."""
 
 from __future__ import annotations
 

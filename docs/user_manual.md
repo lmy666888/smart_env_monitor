@@ -1,51 +1,55 @@
 # User Manual
 
-The Smart Environment Monitoring System dashboard shows real-time
-temperature, humidity, and pressure readings collected by a Raspberry Pi
-device and stored in AWS.
+Web dashboard for the Smart Environment Cloud Monitor. Data is loaded from AWS via Flask; warnings and analysis are computed in Lambda.
 
-## 1. Logging in
+## Login
 
-1. Start Flask (`python run.py`), then open **http://127.0.0.1:5001/login** (or `/` redirect).
-2. Enter the demo credentials: `admin / admin123` (unless `DISABLE_AUTH=1`).
-3. You will be redirected to `/dashboard`.
+1. Start the app: `python run.py`
+2. Open http://127.0.0.1:5001/login
+3. Register a new user, or sign in with an existing account
+4. For local demos only: `DISABLE_AUTH=1` skips login
 
-> Session-based login is enforced by Flask when auth is enabled; `DISABLE_AUTH` is for trusted local demos only.
+## Dashboard overview
 
-## 2. Dashboard sections
+| Area | Description |
+|------|-------------|
+| System / Cloud API | Flask and AWS reachability |
+| Cloud Data Freshness | Live / Recent / Stale from `latest.timestamp` |
+| Sensor backend | Source of latest reading (`sense_emu`, etc.) |
+| Last device upload | Relative time from `latest.timestamp` |
+| Reading cards | Latest temperature, humidity, pressure |
+| Warnings | Active threshold messages |
+| Temperature intelligence | Spike, trend, prediction from cloud analysis |
+| Chart | Recent temperature vs thresholds |
+| Settings form | Saves thresholds to DynamoDB |
+| Manual ingest | POST one reading to `/ingest` for testing |
 
-| Section | What it shows |
-|---|---|
-| System / cloud status | Local Flask health and cloud reachability indicators. |
-| Warning level | Normal / warning / critical from threshold logic. |
-| Reading cards | Latest temperature, humidity, pressure from cloud payload. |
-| Warnings | Active threshold violations. |
-| Temperature intelligence | Spike/trend/prediction from `services/analysis_service`. |
-| Historical chart | Temperature series from recent `sensor_data`. |
-| Threshold form | Persists to AWS via `/api/settings` when configured. |
+## Refresh rate
 
-## 3. Refresh cadence
+The page polls `/api/data` every few seconds (`dataRefreshMs` in `templates/index.html`).
 
-Polling interval is set in `templates/index.html` (`window.APP_CONFIG.dataRefreshMs`, default a few seconds). Adjust there for demos or recordings.
+## Warnings
 
-## 4. Warning rules
+Compared against cloud **settings** for the configured `device_id`:
 
-Given the AWS `settings`, a warning is produced when the latest reading is:
+- Temperature outside `temp_min` / `temp_max`
+- Humidity outside `humidity_min` / `humidity_max`
+- Pressure outside `pressure_min` / `pressure_max`
 
-- `temperature < temp_min` or `temperature > temp_max`
-- `humidity < humidity_min` or `humidity > humidity_max`
-- `pressure < pressure_min` or `pressure > pressure_max`
+If none apply, the banner shows that readings are within normal ranges.
 
-If none apply, the banner shows **"All readings are within normal ranges."**
+## Analysis panel
 
-## 5. Trend analysis
+- **Spike / drop** — change between the last two temperature samples
+- **Trend** — pattern over recent history (stable, increasing, decreasing, volatile)
+- **Prediction** — rough estimate of reaching a threshold based on recent slope
 
-- **Spike / drop**: the difference between the two most recent temperature
-  values; flagged if the change exceeds ±3 °C by default.
-- **Trend**: the total change across all loaded readings; classified as
-  "increasing", "decreasing" or "stable" using a ±0.5 °C delta.
-- **Summary**: minimum / maximum temperature observed in the loaded window.
+Text comes from the `analysis` object in `/api/data` (Lambda).
 
-## 6. Error handling
+## Saving settings
 
-- Failed `/api/data` polls surface in the warning banner and status cards; transient failures may keep the last good payload on screen until the next successful refresh.
+Use **Save to cloud**. Values are sent to AWS `POST /settings` and stored under your `device_id` in DeviceSettings.
+
+## Errors
+
+If `/api/data` fails, the banner and status cards show an error. After a successful poll, the last good payload may remain on screen until the next update.

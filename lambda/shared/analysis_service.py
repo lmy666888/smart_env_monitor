@@ -1,67 +1,54 @@
+
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Any, Optional
 
 SPIKE_THRESHOLD = float(os.getenv("SPIKE_THRESHOLD", "3.0"))
-STABILITY_THRESHOLD = float(os.getenv("STABILITY_THRESHOLD", "0.15"))
-MIN_TREND_POINTS = int(os.getenv("MIN_TREND_POINTS", "5"))
-RECENT_WINDOW = int(os.getenv("RECENT_WINDOW", "8"))
+STABILITY_THRESHOLD = float(os.getenv("STABILITY_THRESHOLD", "0.1"))
 
 logger = logging.getLogger("smart_env_monitor.analysis")
 
+MIN_TREND_POINTS = 5
+
 
 def _safe_temperature_list(rows: List[Any]) -> List[float]:
-    temperatures: List[float] = []
-
+    temperatures = []
     for row in rows:
         try:
-            value = float(row["temperature"])
-            if -50 <= value <= 100:
-                temperatures.append(value)
+            temperatures.append(float(row["temperature"]))
         except (KeyError, TypeError, ValueError):
             continue
 
     return temperatures
 
 
-def _get_recent_values(temperatures: List[float], window: int = RECENT_WINDOW) -> List[float]:
-    if len(temperatures) <= window:
-        return temperatures
-    return temperatures[-window:]
-
 
 def detect_spike_or_drop(
     temperatures: List[float],
     threshold: float = SPIKE_THRESHOLD
 ) -> str:
+    """check spike or drop"""
     if len(temperatures) < 2:
         return "Not enough data to detect sudden spike or drop."
 
-    recent = _get_recent_values(temperatures, 5)
-    latest_change = recent[-1] - recent[-2]
+    recent_change = temperatures[-1] - temperatures[-2]
 
-    if latest_change >= threshold:
-        return f"Sudden temperature spike detected: +{latest_change:.2f}°C since the previous reading."
+    if recent_change > threshold:
+        return f"Sudden spike detected: +{recent_change:.2f}°C"
 
-    if latest_change <= -threshold:
-        return f"Sudden temperature drop detected: {latest_change:.2f}°C since the previous reading."
-
-    max_jump = max(
-        abs(recent[i] - recent[i - 1])
-        for i in range(1, len(recent))
-    )
-
-    if max_jump >= threshold:
-        return f"Recent temperature instability detected; largest change was {max_jump:.2f}°C."
+    if recent_change < -threshold:
+        return f"Sudden drop detected: {recent_change:.2f}°C"
 
     return "No sudden spike or drop detected."
 
-
 def detect_trend(temperatures: List[float]) -> str:
+    """Trend from the most recent readings (up to 20)."""
     if len(temperatures) < MIN_TREND_POINTS:
         return "Not enough data to determine a reliable trend."
 
-    recent = _get_recent_values(temperatures, 20)
+    recent = temperatures[-20:]
+    if len(recent) < MIN_TREND_POINTS:
+        return "Not enough data to determine a reliable trend."
 
     first_temp = recent[0]
     last_temp = recent[-1]
@@ -73,7 +60,7 @@ def detect_trend(temperatures: List[float]) -> str:
     std_dev = variance ** 0.5
 
     logger.debug(
-        "Trend analysis: first=%.2f last=%.2f change=%.2f range=%.2f std=%.2f n=%s",
+        "Trend analysis: first=%.2f last=%.2f change=%.2f range=%.2f std_dev=%.2f n=%s",
         first_temp,
         last_temp,
         total_change,
@@ -82,19 +69,22 @@ def detect_trend(temperatures: List[float]) -> str:
         len(recent),
     )
 
-    if std_dev >= 3.0 or temp_range >= 6.0:
-        return "Temperature readings are volatile with rapid fluctuations detected."
+    volatile = std_dev >= 3.0 or temp_range >= 6.0
+    stable = std_dev < 1.0 or temp_range < 2.0
 
-    if abs(total_change) <= 1.0 and std_dev < 1.2:
+    if volatile:
+        return (
+            "Temperature readings are volatile with rapid "
+            "fluctuations detected."
+        )
+    if stable:
         return "Temperature is relatively stable."
-
     if total_change > 2.0:
         return "Temperature is increasing over the recent readings."
-
     if total_change < -2.0:
         return "Temperature is decreasing over the recent readings."
-
     return "No clear overall temperature trend detected."
+
 
 
 def predict_threshold_exceedance(
@@ -103,90 +93,42 @@ def predict_threshold_exceedance(
     temp_max: float,
     interval_seconds: int = 5
 ) -> str:
+    """predict next threshold crossing"""
     if len(temperatures) < MIN_TREND_POINTS:
         return "Not enough data for prediction."
-
+    avg_change = (temperatures[-1] - temperatures[0]) / (len(temperatures) - 1)
     current_temp = temperatures[-1]
 
-    # 1. Current-state awareness: already abnormal.
-    if current_temp > temp_max:
-        diff = current_temp - temp_max
-        if diff >= 5:
-            return (
-                f"Critical: temperature is currently {diff:.2f}°C above the maximum "
-                f"threshold ({temp_max:.1f}°C). Immediate attention is recommended."
-            )
-        return (
-            f"Warning: temperature is currently exceeding the maximum threshold "
-            f"({temp_max:.1f}°C) by {diff:.2f}°C."
-        )
-
-    if current_temp < temp_min:
-        diff = temp_min - current_temp
-        if diff >= 5:
-            return (
-                f"Critical: temperature is currently {diff:.2f}°C below the minimum "
-                f"threshold ({temp_min:.1f}°C). Immediate attention is recommended."
-            )
-        return (
-            f"Warning: temperature is currently below the minimum threshold "
-            f"({temp_min:.1f}°C) by {diff:.2f}°C."
-        )
-
-    # 2. Near-threshold awareness.
-    upper_margin = temp_max - current_temp
-    lower_margin = current_temp - temp_min
-
-    if upper_margin <= 1.0:
-        return (
-            f"Temperature is very close to the upper threshold. Current margin: "
-            f"{upper_margin:.2f}°C."
-        )
-
-    if lower_margin <= 1.0:
-        return (
-            f"Temperature is very close to the lower threshold. Current margin: "
-            f"{lower_margin:.2f}°C."
-        )
-
-    # 3. Recent-window prediction instead of whole-history average.
-    recent = _get_recent_values(temperatures, RECENT_WINDOW)
-
-    if len(recent) < MIN_TREND_POINTS:
-        return "Not enough recent data for prediction."
-
-    avg_change = (recent[-1] - recent[0]) / (len(recent) - 1)
+    stability_threshold = STABILITY_THRESHOLD
 
     logger.debug(
-        "Prediction analysis: current=%.2f avg_recent_change=%.3f temp_min=%.2f temp_max=%.2f",
-        current_temp,
+        "Prediction analysis: avg_change=%.3f current_temp=%.2f",
         avg_change,
-        temp_min,
-        temp_max,
+        current_temp
     )
-
-    if abs(avg_change) < STABILITY_THRESHOLD:
+    if abs(avg_change) < stability_threshold:
         return "Temperature is relatively stable; no threshold exceedance predicted soon."
 
-    if avg_change > 0:
+    # going up
+    if avg_change > 0 and current_temp < temp_max:
         steps = (temp_max - current_temp) / avg_change
-        if 0 < steps <= 12:
+        if steps > 0:
             seconds = steps * interval_seconds
             if seconds < 60:
-                return f"Temperature is rising and may exceed the upper threshold in about {seconds:.0f} seconds."
-            return f"Temperature is rising and may exceed the upper threshold in about {seconds / 60:.1f} minutes."
-        return "Temperature is rising, but no immediate upper-threshold exceedance is predicted."
-
-    if avg_change < 0:
+                return f"Temperature may exceed the upper threshold in about {seconds:.0f} seconds."
+            return f"Temperature may exceed the upper threshold in about {seconds / 60:.1f} minutes."
+    # going down
+    if avg_change < 0 and current_temp > temp_min:
         steps = (current_temp - temp_min) / abs(avg_change)
-        if 0 < steps <= 12:
+        if steps > 0:
             seconds = steps * interval_seconds
             if seconds < 60:
-                return f"Temperature is falling and may go below the lower threshold in about {seconds:.0f} seconds."
-            return f"Temperature is falling and may go below the lower threshold in about {seconds / 60:.1f} minutes."
-        return "Temperature is falling, but no immediate lower-threshold exceedance is predicted."
+                return f"Temperature may fall below the lower threshold in about {seconds:.0f} seconds."
+            return f"Temperature may fall below the lower threshold in about {seconds / 60:.1f} minutes."
 
     return "No threshold exceedance predicted based on the current trend."
+
+
 
 
 def analyze_temperature_trend(
@@ -194,6 +136,7 @@ def analyze_temperature_trend(
     settings: Optional[Any],
     interval_seconds: int = 5
 ) -> Dict[str, str]:
+    """run full analysis"""
     result = {
         "spike_drop": "No sudden spike or drop detected.",
         "trend": "Not enough data to determine a reliable trend.",
@@ -204,23 +147,14 @@ def analyze_temperature_trend(
         if not rows or not settings:
             logger.warning("Analysis skipped: missing rows or settings.")
             return result
-
         temperatures = _safe_temperature_list(rows)
 
         if len(temperatures) < 2:
-            logger.warning("Analysis skipped: insufficient valid temperature data.")
+            logger.warning("Analysis skipped: insufficient temperature data.")
             return result
 
         temp_min = float(settings["temp_min"])
         temp_max = float(settings["temp_max"])
-
-        if temp_min >= temp_max:
-            logger.warning("Analysis skipped: invalid thresholds temp_min >= temp_max.")
-            return {
-                "spike_drop": "Analysis unavailable due to invalid threshold settings.",
-                "trend": "Analysis unavailable due to invalid threshold settings.",
-                "prediction": "Prediction unavailable because minimum temperature threshold is not below maximum threshold."
-            }
 
         result["spike_drop"] = detect_spike_or_drop(temperatures)
         result["trend"] = detect_trend(temperatures)
@@ -230,7 +164,6 @@ def analyze_temperature_trend(
             temp_max=temp_max,
             interval_seconds=interval_seconds
         )
-
         return result
 
     except (KeyError, TypeError, ValueError) as exc:
