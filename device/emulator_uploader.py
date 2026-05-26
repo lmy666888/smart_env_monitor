@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Post sense_emu readings to API Gateway /ingest (use system Python, not Flask venv)."""
+"""Post sense_emu readings to API Gateway /ingest."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-# --- Defaults (override via env) ---
 DEFAULT_API_URL = (
     "https://9jzbd9a34j.execute-api.ap-southeast-2.amazonaws.com/ingest"
 )
@@ -19,7 +18,7 @@ DEFAULT_DEVICE_ID = "pi-001"
 DEFAULT_INTERVAL = 5
 SOURCE_LABEL = "sense_emu"
 
-TEMP_MIN, TEMP_MAX = -40.0, 80.0
+TEMP_MIN, TEMP_MAX = -40.0, 100.0
 HUMIDITY_MIN, HUMIDITY_MAX = 0.0, 100.0
 PRESSURE_MIN, PRESSURE_MAX = 800.0, 1200.0
 

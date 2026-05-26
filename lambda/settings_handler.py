@@ -1,13 +1,4 @@
-"""
-Lambda: GET and POST /settings
-
-* **GET** — returns current threshold settings from DynamoDB (defaults if missing).
-* **POST** — validates body and writes DeviceSettings row keyed by ``device_id`` (default ``pi-001``).
-
-Supports **API Gateway HTTP API (v2)** and **REST API (v1)** event shapes.
-Always returns JSON bodies (including 404/405) so clients never see a bare
-``Not Found`` string without a structured envelope.
-"""
+"""Lambda GET/POST /settings — read and write device threshold settings."""
 
 from __future__ import annotations
 
@@ -43,7 +34,6 @@ def _json_response(status_code: int, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _parse_http_method(event: Dict[str, Any]) -> str:
-    """HTTP API v2 vs REST API v1."""
     ctx = event.get("requestContext") or {}
     http = ctx.get("http")
     if isinstance(http, dict):
@@ -57,7 +47,6 @@ def _parse_http_method(event: Dict[str, Any]) -> str:
 
 
 def _parse_path(event: Dict[str, Any]) -> str:
-    """Best-effort path for error messages."""
     req = event.get("requestContext", {}).get("http", {})
     if isinstance(req, dict) and req.get("path"):
         return str(req["path"])

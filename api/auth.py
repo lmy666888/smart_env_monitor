@@ -1,10 +1,4 @@
-"""
-Session management for the Flask dashboard.
-
-Production authentication is performed by AWS ``auth_handler`` (API Gateway
-``POST /login`` and ``POST /register``). Flask stores only the session cookie
-after a successful cloud login — no plaintext passwords are persisted locally.
-"""
+"""Session management — login/register via AWS auth_handler Lambda."""
 
 from __future__ import annotations
 
@@ -25,7 +19,6 @@ def get_admin_username() -> str:
 
 
 def get_admin_password() -> str:
-    """Deprecated local fallback password (empty by default)."""
     return str(getattr(Config, "ADMIN_PASSWORD", ""))
 
 
@@ -72,9 +65,7 @@ def get_current_username(default: str = "") -> str:
 
 
 def verify_credentials_local(username: str, password: str) -> bool:
-    """
-    DEPRECATED — local Flask Brain auth only when USE_AWS_BRAIN=false.
-    """
+    """Deprecated — kept for backwards compatibility only."""
     username = str(username or "").strip()
     password = str(password or "")
     if username != get_admin_username():
@@ -171,7 +162,6 @@ def build_register_result(username: str, email: str, password: str) -> Dict[str,
 
 
 def verify_credentials(username: str, password: str) -> bool:
-    """Backward-compatible alias — prefer :func:`build_login_result`."""
     return bool(build_login_result(username, password).get("success"))
 
 

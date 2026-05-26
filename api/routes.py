@@ -1,4 +1,4 @@
-"""REST JSON routes under ``/api/*`` — thin proxies to AWS API Gateway (BFF)."""
+"""REST routes /api/* — proxies to AWS API Gateway."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def validate_ingest_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 @api_bp.route("/data")
 @login_required
 def api_data():
-    """Proxy AWS GET /data — warnings and analysis from Lambda only."""
+    """Proxy Lambda GET /data."""
     cfg = _cfg()
     device_id = request.args.get("device_id") or getattr(cfg, "DEVICE_ID", None)
 
@@ -147,7 +147,7 @@ def api_data():
 @api_bp.route("/ingest", methods=["POST"])
 @login_required
 def api_ingest():
-    """Forward sensor JSON to AWS POST /ingest."""
+    """Forward sensor JSON to POST /ingest."""
     data = request.get_json(silent=True) or {}
     try:
         payload = validate_ingest_payload(data)
@@ -227,7 +227,7 @@ def api_settings():
 @api_bp.route("/simulate", methods=["POST"])
 @login_required
 def api_simulate():
-    """Manual reading upload — forwards to AWS POST /ingest."""
+    """Manual reading upload via POST /ingest."""
     data = request.get_json(silent=True) or {}
     try:
         payload = validate_ingest_payload(data)

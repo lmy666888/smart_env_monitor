@@ -1,4 +1,4 @@
-"""Configuration package for Smart Environment Monitor."""
+"""Config package."""
 
 from config import cloud_config
 from config.settings import Config, DevelopmentConfig, ProductionConfig, PROJECT_ROOT, get_config

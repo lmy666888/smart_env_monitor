@@ -1,4 +1,4 @@
-"""Dashboard payload — AWS proxy only (BFF)."""
+"""Dashboard payload — proxies to AWS."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""
-Normalize threshold settings dicts from AWS / DynamoDB (canonical field names).
-
-Mirrors ``lambda/shared/dynamo_settings.py`` alias rules for the Flask proxy layer.
-"""
+"""Normalize threshold settings dicts from AWS to canonical field names."""
 
 from __future__ import annotations
 

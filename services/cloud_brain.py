@@ -1,9 +1,4 @@
-"""
-Deprecated — dashboard brain logic lives only in Lambda (get_dashboard_data).
-
-Flask must not import lambda/shared for warnings or analysis. Kept as a stub
-so old imports fail loudly during development.
-"""
+"""Deprecated stub — brain logic lives in Lambda only."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ from typing import Any, Dict
 
 
 def cloud_payload_has_brain_fields(payload: Dict[str, Any]) -> bool:
-    """Check Lambda returned full brain payload (used by tests only)."""
     if not isinstance(payload.get("warnings"), list):
         return False
     analysis = payload.get("analysis")

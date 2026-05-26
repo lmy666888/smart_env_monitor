@@ -1,6 +1,4 @@
-"""
-Sensor collection: read hardware/emulator, upload to AWS, optional SQLite cache.
-"""
+"""Sensor collection — read hardware/emulator, upload to AWS."""
 
 from __future__ import annotations
 
@@ -22,7 +20,6 @@ def _iso_timestamp() -> str:
 
 
 def _maybe_update_sense_hat_led(reading: Dict[str, Any], cfg: type) -> None:
-    """Update optional Sense HAT LED matrix using cached cloud thresholds."""
     try:
         from legacy.display_service import update_warning_display
     except Exception:
@@ -46,11 +43,7 @@ def _maybe_update_sense_hat_led(reading: Dict[str, Any], cfg: type) -> None:
 
 
 def collect_reading_and_upload(config_class: Optional[type] = None) -> bool:
-    """
-    Read sensors, POST JSON to API Gateway ingest, optionally mirror to SQLite.
-
-    Returns True if cloud upload succeeded. Never raises.
-    """
+    """Read sensors and POST to AWS ingest. Returns True on success."""
     cfg = config_class or get_config()
     client = CloudAPIClient(cfg)
 
@@ -103,7 +96,6 @@ def _sqlite_cache_fallback(cfg: type, reading: Dict[str, Any]) -> None:
 
 
 def collect_and_store_reading(use_simulation_fallback: bool = False) -> bool:
-    """Assignment 1 name preserved — now uploads to cloud instead of DB-only."""
     return collect_reading_and_upload()
 
 

@@ -1,12 +1,4 @@
-"""
-DynamoDB threshold settings — one row per device.
-
-Canonical schema (DeviceSettings table):
-    Partition key: device_id (string), e.g. "pi-001"
-    Attributes: temp_min, temp_max, humidity_min, humidity_max, pressure_min, pressure_max
-
-Do NOT use legacy ``id`` = ``global`` (causes ValidationException on current tables).
-"""
+"""DynamoDB threshold settings — one row per device (partition key: device_id)."""
 
 from __future__ import annotations
 
@@ -56,13 +48,11 @@ _dynamodb = boto3.resource("dynamodb")
 
 
 def resolve_device_id(device_id: str | None = None) -> str:
-    """Device partition key for DeviceSettings (aligns with SensorData.device_id)."""
     raw = (device_id or DEFAULT_DEVICE_ID or "pi-001").strip()
     return raw or "pi-001"
 
 
 def canonical_partition_key(device_id: str | None = None) -> Dict[str, str]:
-    """DynamoDB key: ``{"device_id": "pi-001"}``."""
     did = resolve_device_id(device_id)
     return {"device_id": did}
 
@@ -78,7 +68,6 @@ def decimal_to_native(obj: Any) -> Any:
 
 
 def normalize_settings_dict(raw: Mapping[str, Any]) -> Dict[str, float]:
-    """Map aliases to canonical threshold keys (excludes device_id)."""
     if not raw:
         return dict(DEFAULT_SETTINGS)
 
@@ -109,7 +98,6 @@ def normalize_settings_dict(raw: Mapping[str, Any]) -> Dict[str, float]:
 
 
 def _item_to_settings(item: Dict[str, Any]) -> Dict[str, float]:
-    """Strip partition key and metadata; return threshold fields only."""
     skip = {
         "device_id",
         "id",
@@ -126,51 +114,24 @@ def load_settings(
     table_name: str | None = None,
     device_id: str | None = None,
 ) -> Dict[str, float]:
-    """
-    Read threshold settings for one device from DeviceSettings.
-
-    Key: ``{"device_id": "<device_id>"}`` (default pi-001).
-    """
     name = table_name or SETTINGS_TABLE_NAME
     did = resolve_device_id(device_id)
     key = canonical_partition_key(did)
-
-    logger.info(
-        "[DEBUG] DynamoDB settings key=device_id:%s table=%s operation=get_item",
-        did,
-        name,
-    )
 
     try:
         table = _dynamodb.Table(name)
         response = table.get_item(Key=key)
         item = response.get("Item")
         if item:
-            settings = _item_to_settings(decimal_to_native(item))
-            logger.info(
-                "[DEBUG] DynamoDB settings loaded device_id:%s -> temp_max=%s",
-                did,
-                settings.get("temp_max"),
-            )
-            return settings
+            return _item_to_settings(decimal_to_native(item))
     except Exception as exc:
-        logger.exception(
-            "[DEBUG] DynamoDB get_item failed table=%s key=device_id:%s error=%s",
-            name,
-            did,
-            exc,
-        )
+        logger.exception("DynamoDB get_item failed table=%s device_id=%s: %s", name, did, exc)
 
-    logger.warning(
-        "No settings row in %s for device_id:%s; returning DEFAULT_SETTINGS.",
-        name,
-        did,
-    )
+    logger.warning("No settings for device_id=%s in %s; using defaults.", did, name)
     return dict(DEFAULT_SETTINGS)
 
 
 def validate_settings_payload(payload: Dict[str, Any]) -> Dict[str, Decimal]:
-    """Validate POST body; accepts canonical names and aliases."""
     body = dict(payload or {})
     body.pop("device_id", None)
 
@@ -203,20 +164,9 @@ def save_settings(
     table_name: str | None = None,
     device_id: str | None = None,
 ) -> Dict[str, float]:
-    """
-    Persist settings for one device and re-read from DynamoDB.
-
-    Item shape: ``{"device_id": "pi-001", "temp_min": ..., ...}``.
-    """
     name = table_name or SETTINGS_TABLE_NAME
     did = resolve_device_id(device_id)
     key = canonical_partition_key(did)
-
-    logger.info(
-        "[DEBUG] DynamoDB settings key=device_id:%s table=%s operation=put_item",
-        did,
-        name,
-    )
 
     table = _dynamodb.Table(name)
     item = {**key, **values}
@@ -234,14 +184,8 @@ def save_settings(
         )
         return written
 
-    logger.info(
-        "[DEBUG] DynamoDB settings saved device_id:%s temp_max=%s",
-        did,
-        loaded.get("temp_max"),
-    )
     return loaded
 
 
 def settings_for_response(values: Dict[str, Decimal] | Dict[str, float]) -> Dict[str, float]:
-    """JSON-serializable floats for API responses."""
     return {k: float(v) for k, v in values.items()}

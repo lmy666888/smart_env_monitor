@@ -1,3 +1,4 @@
+"""Temperature analysis — spike/drop, trend, prediction (Lambda brain)."""
 
 import logging
 import os
@@ -18,16 +19,13 @@ def _safe_temperature_list(rows: List[Any]) -> List[float]:
             temperatures.append(float(row["temperature"]))
         except (KeyError, TypeError, ValueError):
             continue
-
     return temperatures
-
 
 
 def detect_spike_or_drop(
     temperatures: List[float],
     threshold: float = SPIKE_THRESHOLD
 ) -> str:
-    """check spike or drop"""
     if len(temperatures) < 2:
         return "Not enough data to detect sudden spike or drop."
 
@@ -35,14 +33,13 @@ def detect_spike_or_drop(
 
     if recent_change > threshold:
         return f"Sudden spike detected: +{recent_change:.2f}°C"
-
     if recent_change < -threshold:
         return f"Sudden drop detected: {recent_change:.2f}°C"
 
     return "No sudden spike or drop detected."
 
+
 def detect_trend(temperatures: List[float]) -> str:
-    """Trend from the most recent readings (up to 20)."""
     if len(temperatures) < MIN_TREND_POINTS:
         return "Not enough data to determine a reliable trend."
 
@@ -59,24 +56,11 @@ def detect_trend(temperatures: List[float]) -> str:
     variance = sum((t - mean) ** 2 for t in recent) / len(recent)
     std_dev = variance ** 0.5
 
-    logger.debug(
-        "Trend analysis: first=%.2f last=%.2f change=%.2f range=%.2f std_dev=%.2f n=%s",
-        first_temp,
-        last_temp,
-        total_change,
-        temp_range,
-        std_dev,
-        len(recent),
-    )
-
     volatile = std_dev >= 3.0 or temp_range >= 6.0
     stable = std_dev < 1.0 or temp_range < 2.0
 
     if volatile:
-        return (
-            "Temperature readings are volatile with rapid "
-            "fluctuations detected."
-        )
+        return "Temperature readings are volatile with rapid fluctuations detected."
     if stable:
         return "Temperature is relatively stable."
     if total_change > 2.0:
@@ -86,30 +70,20 @@ def detect_trend(temperatures: List[float]) -> str:
     return "No clear overall temperature trend detected."
 
 
-
 def predict_threshold_exceedance(
     temperatures: List[float],
     temp_min: float,
     temp_max: float,
     interval_seconds: int = 5
 ) -> str:
-    """predict next threshold crossing"""
     if len(temperatures) < MIN_TREND_POINTS:
         return "Not enough data for prediction."
     avg_change = (temperatures[-1] - temperatures[0]) / (len(temperatures) - 1)
     current_temp = temperatures[-1]
 
-    stability_threshold = STABILITY_THRESHOLD
-
-    logger.debug(
-        "Prediction analysis: avg_change=%.3f current_temp=%.2f",
-        avg_change,
-        current_temp
-    )
-    if abs(avg_change) < stability_threshold:
+    if abs(avg_change) < STABILITY_THRESHOLD:
         return "Temperature is relatively stable; no threshold exceedance predicted soon."
 
-    # going up
     if avg_change > 0 and current_temp < temp_max:
         steps = (temp_max - current_temp) / avg_change
         if steps > 0:
@@ -117,7 +91,7 @@ def predict_threshold_exceedance(
             if seconds < 60:
                 return f"Temperature may exceed the upper threshold in about {seconds:.0f} seconds."
             return f"Temperature may exceed the upper threshold in about {seconds / 60:.1f} minutes."
-    # going down
+
     if avg_change < 0 and current_temp > temp_min:
         steps = (current_temp - temp_min) / abs(avg_change)
         if steps > 0:
@@ -129,14 +103,11 @@ def predict_threshold_exceedance(
     return "No threshold exceedance predicted based on the current trend."
 
 
-
-
 def analyze_temperature_trend(
     rows: List[Any],
     settings: Optional[Any],
     interval_seconds: int = 5
 ) -> Dict[str, str]:
-    """run full analysis"""
     result = {
         "spike_drop": "No sudden spike or drop detected.",
         "trend": "Not enough data to determine a reliable trend.",
@@ -145,12 +116,10 @@ def analyze_temperature_trend(
 
     try:
         if not rows or not settings:
-            logger.warning("Analysis skipped: missing rows or settings.")
             return result
         temperatures = _safe_temperature_list(rows)
 
         if len(temperatures) < 2:
-            logger.warning("Analysis skipped: insufficient temperature data.")
             return result
 
         temp_min = float(settings["temp_min"])
@@ -167,7 +136,7 @@ def analyze_temperature_trend(
         return result
 
     except (KeyError, TypeError, ValueError) as exc:
-        logger.exception("Analysis failed due to invalid input: %s", exc)
+        logger.exception("Analysis failed: %s", exc)
         return {
             "spike_drop": "Analysis unavailable due to invalid input data.",
             "trend": "Analysis unavailable due to invalid input data.",

@@ -1,9 +1,4 @@
-"""
-Device-side reading wrapper (Pi / emulator).
-
-Delegates to the shared ``sensor.reader`` implementation used by the Flask
-collector, and adds an ISO timestamp field expected by standalone senders.
-"""
+"""Device-side reading wrapper — adds timestamp to sensor reads."""
 
 from __future__ import annotations
 
@@ -26,5 +21,4 @@ def read_reading() -> Optional[Dict[str, Any]]:
 
 
 def get_backend_name() -> str:
-    """Alias for logging / UI (matches historical device API)."""
     return get_sensor_source_name()

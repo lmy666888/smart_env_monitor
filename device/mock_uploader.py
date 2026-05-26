@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""
-MacBook / demo mock cloud uploader.
-
-Generates realistic indoor sensor values and POSTs to AWS /ingest with
-source=mock_demo (never labelled as Sense HAT Emulator).
-
-Requires explicit demo flags when used from automation:
-    DEMO_MODE=true
-    MOCK_UPLOAD_ENABLED=true
-
-Run:
-    DEMO_MODE=true MOCK_UPLOAD_ENABLED=true python3 device/mock_uploader.py
-"""
+"""Mock cloud uploader — generates fake indoor values for demo/testing."""
 
 from __future__ import annotations
 
@@ -48,7 +36,6 @@ def _resolve_ingest_url() -> str:
 
 
 def _next_reading() -> Dict[str, float]:
-    """Smooth random-walk within realistic indoor ranges."""
     state = getattr(_next_reading, "_state", None)
     if state is None:
         state = {"temperature": 22.0, "humidity": 55.0, "pressure": 1013.0}

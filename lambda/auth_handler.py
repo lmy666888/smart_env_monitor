@@ -1,11 +1,4 @@
-"""
-Lambda: POST /login and POST /register
-
-Authenticates users against DynamoDB ``Users`` table (partition key: username).
-
-Environment variables:
-    USERS_TABLE_NAME   Default: Users
-"""
+"""Lambda POST /login and POST /register — DynamoDB Users table auth."""
 
 from __future__ import annotations
 

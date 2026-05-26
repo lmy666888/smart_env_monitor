@@ -1,15 +1,4 @@
-"""
-Lambda: GET /data (AWS Brain — authoritative dashboard payload)
-
-Returns sensor history, settings, warnings, warning_status, analysis, and chart
-series. Flask proxies this response without recomputing analysis.
-
-Environment variables:
-    SENSOR_TABLE_NAME     DynamoDB SensorData (partition: device_id, sort: timestamp)
-    SETTINGS_TABLE_NAME   DynamoDB DeviceSettings (partition key: device_id, e.g. pi-001)
-    READING_LIMIT         Optional, default 50
-    SENSOR_INTERVAL       Optional, seconds between readings for prediction text
-"""
+"""Lambda GET /data — returns sensor readings, settings, warnings, and analysis."""
 
 from __future__ import annotations
 
@@ -101,7 +90,7 @@ def _chart_from_readings(readings: List[Dict[str, Any]]) -> tuple[List[str], Lis
 
 
 def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
-    logger.info("get_dashboard_data invoked (AWS Brain).")
+    logger.info("get_dashboard_data invoked.")
 
     params = (event or {}).get("queryStringParameters") or {}
     device_id = params.get("device_id", "pi-001")

@@ -1,14 +1,4 @@
-"""
-Standalone device uploader (Raspberry Pi or laptop with emulator).
-
-POSTs each reading to API Gateway ingest using the shared ``CloudAPIClient``
-(``requests`` + retries + timeouts).
-
-Environment variables mirror ``config.settings`` (see README).
-
-Run:
-    python -m device.device_sender
-"""
+"""Standalone device uploader — reads sensor and POSTs to AWS /ingest."""
 
 from __future__ import annotations
 

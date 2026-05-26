@@ -1,11 +1,10 @@
-"""API Gateway URLs and feature flags (AWS is authoritative for brain logic)."""
+"""API Gateway URLs and feature flags."""
 
 from __future__ import annotations
 
 import os
 from typing import Dict
 
-# Region documented for deployment; not used directly by HTTP client.
 AWS_REGION = os.getenv("AWS_REGION", "ap-southeast-2")
 
 AWS_API_BASE_URL = os.getenv(
@@ -30,19 +29,12 @@ DASHBOARD_CLOUD_TIMEOUT = float(
     os.getenv("DASHBOARD_CLOUD_TIMEOUT", os.getenv("CLOUD_TIMEOUT_SECONDS", "15"))
 )
 
-# AWS Lambda is the only dashboard brain (Flask is BFF only).
 USE_AWS_BRAIN = True
-
-# Deprecated — local brain fallback removed from Flask routes.
 LOCAL_FALLBACK_ON_AWS_ERROR = False
 
-# Shared secret for POST /ingest (header X-DEVICE-KEY). Empty = ingest auth disabled.
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "").strip()
-
-# SNS topic for email alerts from get_dashboard_data (optional).
 SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "").strip()
 
-# Flask background upload loop (sensor.collector). Default off for cloud demo mode.
 ENABLE_BACKGROUND_COLLECTOR = os.getenv("ENABLE_BACKGROUND_COLLECTOR", "false").strip().lower() in {
     "1",
     "true",
@@ -50,8 +42,6 @@ ENABLE_BACKGROUND_COLLECTOR = os.getenv("ENABLE_BACKGROUND_COLLECTOR", "false").
     "on",
 }
 
-# Explicit demo/mock cloud uploads (MacBook). When false, Flask reader must not
-# silently substitute mock readings for failed emulator reads.
 DEMO_MODE = os.getenv("DEMO_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
 MOCK_UPLOAD_ENABLED = os.getenv("MOCK_UPLOAD_ENABLED", "false").strip().lower() in {
     "1",
@@ -62,7 +52,6 @@ MOCK_UPLOAD_ENABLED = os.getenv("MOCK_UPLOAD_ENABLED", "false").strip().lower() 
 
 
 def endpoint_url(path: str) -> str:
-    """Build full URL for an API Gateway path (leading slash required)."""
     base = AWS_API_BASE_URL.rstrip("/")
     p = path if path.startswith("/") else f"/{path}"
     return f"{base}{p}"

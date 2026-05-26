@@ -1,141 +1,179 @@
 # Smart Environment Cloud Monitor
 
-IoT environment monitoring for a Raspberry Pi–class device. Sensor readings are stored in **AWS DynamoDB**; **Lambda** computes warnings, trends, and predictions. A **Flask** app provides the dashboard and proxies API Gateway (BFF + session auth).
+Raspberry Pi + Sense HAT environment monitor. Reads temperature, humidity, and pressure from the sensor (or emulator), uploads to AWS via API Gateway, stores in DynamoDB, and shows everything on a Flask dashboard with warnings and trend analysis.
 
-## Features
+Flask just proxies the cloud API — all the analysis logic runs in Lambda.
 
-- Live dashboard: temperature, humidity, pressure, historical chart
-- Threshold warnings (temp / humidity / pressure) from cloud settings
-- Trend, spike/drop, and threshold-crossing prediction (Lambda analysis)
-- Device settings saved to DynamoDB via API Gateway
-- Login and registration (Users table in DynamoDB)
-- Sense HAT Emulator or Pi ingest via HTTP POST `/ingest`
-- Optional local fallback when AWS is unreachable (`LOCAL_FALLBACK_ON_AWS_ERROR`)
-
-## Architecture
+## How it works
 
 ```
-Sense HAT / sense_emu / device uploaders
-        │  POST /ingest  (JSON + source field)
+Sense HAT / Emulator
+        │
+        │  device/emulator_uploader.py
+        │  (POST /ingest with X-DEVICE-KEY header)
         ▼
-API Gateway  →  ingest_sensor_data  →  DynamoDB SensorData
-                        │
-                        ▼
-              get_dashboard_data (warnings, analysis, settings, chart)
-                        │
-        GET /data         │
-        ▼                 │
-Flask /api/data ─────────┘  →  Browser (Chart.js)
+API Gateway → Lambda ingest_sensor_data → DynamoDB SensorData
+                                               │
+API Gateway → Lambda get_dashboard_data ◀──────┘
+                │  warnings, trend, spike detection, prediction
+                │  SNS email alert if thresholds exceeded
+                ▼
+Flask /api/data (proxies GET /data, requires login)
+                │
+                ▼
+Browser (Chart.js, polls every 4 seconds)
 ```
-
-Flask is a **BFF only**: warnings, trend, and prediction are computed exclusively in **`get_dashboard_data` Lambda** (`source: aws_lambda`).
 
 ## Tech stack
 
-| Layer | Technology |
-|-------|------------|
-| Device | Raspberry Pi, Sense HAT, `sense_emu`, optional mock uploader |
-| Ingest / API | API Gateway (HTTP), Lambda (Python 3.x) |
-| Storage | DynamoDB (SensorData, DeviceSettings, Users) |
-| Dashboard | Flask, Jinja2, vanilla JS, Chart.js |
-| Ops | CloudWatch (recommended), curl for smoke tests |
+| Layer | What |
+|-------|------|
+| Device | Raspberry Pi + Sense HAT, or `sense_emu` on desktop |
+| Cloud | API Gateway HTTP API, Lambda (Python), DynamoDB |
+| Dashboard | Flask, Jinja2, Chart.js |
+| Alerts | SNS email (optional) |
 
-## AWS components
+## Sensor ranges
 
-| Resource | Purpose |
-|----------|---------|
-| **SensorData** | `device_id` + `timestamp` — all readings |
-| **DeviceSettings** | Per-device threshold min/max |
-| **Users** | `username`, `email`, `password_hash` for auth |
-| **ingest_sensor_data** | Validate POST body, write SensorData |
-| **get_dashboard_data** | Latest + history, warnings, analysis, chart series |
-| **settings_handler** | GET/POST device thresholds |
-| **auth_handler** | POST `/login`, `/register` |
-| **health_check** | GET `/health` |
+These are the accepted ranges across the whole stack (Lambda, uploader, frontend validation):
 
-Default region in docs/examples: `ap-southeast-2`. Base URL is set in `.env` (`AWS_API_BASE_URL`).
+| Metric | Range | Unit |
+|--------|-------|------|
+| Temperature | -40 to 100 | °C |
+| Humidity | 0 to 100 | % |
+| Pressure | 800 to 1200 | hPa |
+
+Readings outside these ranges get rejected by `ingest_sensor_data`.
 
 ## Project layout
 
 ```
-api/            Flask blueprints (/api/*, pages, auth session)
-cloud/          HTTP client for API Gateway
-config/         Settings and cloud URLs
-device/         Standalone uploaders (emulator, mock demo, Pi sender)
-docs/           Setup, user manual, troubleshooting, test plan
-infrastructure/ API Gateway route notes + sample CloudFormation
-lambda/         Lambda source (deploy as zip; includes shared/)
-sensor/         Reader, optional background collector
-services/       AWS proxy, cloud brain enrichment, local fallback
-templates/      Dashboard and login HTML
-static/         CSS and dashboard JS
-legacy/         Optional SQLite cache and Sense HAT LED helpers
-run.py          Local entrypoint
+api/            Flask routes, auth, pages
+cloud/          HTTP client that talks to API Gateway
+config/         .env loading, URLs, feature flags
+device/         Uploaders (emulator, mock, Pi)
+lambda/         Lambda source — zip these with shared/ to deploy
+  shared/       Warnings, analysis, settings, SNS alerts
+sensor/         Sense HAT reader
+services/       AWS proxy layer (Flask just passes data through)
+templates/      HTML (dashboard + login page)
+static/         JS and CSS
+infrastructure/ CloudFormation snippet for /settings route
+run.py          Start Flask
 ```
 
 ## Setup
 
-**Prerequisites:** Python 3.10+, browser, AWS API Gateway endpoints already deployed (or your own stack).
+### 1. Clone and install
 
 ```bash
+cd ~/Desktop
+git clone <your-repo-url> smart_env_monitor
 cd smart_env_monitor
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+You might also need the Sense HAT emulator package:
+
+```bash
+pip install sense-emu sense-hat
+```
+
+### 2. Create your .env
+
+`.env` is not in git (it has your API key). You have to create it yourself:
+
+```bash
 cp .env.example .env
-# Edit SECRET_KEY and AWS_API_BASE_URL if needed
-python run.py
+nano .env
 ```
 
-1. Open http://127.0.0.1:5001/login — register, then sign in (auth required in production).
-2. Dashboard polls `GET /api/data`, which calls AWS `GET /data`.
+At minimum, set these two:
 
-## Running with Sense HAT Emulator (recommended demo)
-
-Use **system Python** for the emulator uploader so the Flask venv does not post invalid emulator reads as mock data.
-
-**Terminal 1 — emulator GUI**
-
-```bash
-python3 -m sense_emu.gui
+```
+AWS_API_BASE_URL=https://your-api-id.execute-api.ap-southeast-2.amazonaws.com
+DEVICE_API_KEY=your-device-api-key
 ```
 
-**Terminal 2 — upload to AWS (`source=sense_emu`)**
+The `DEVICE_API_KEY` must match the value set on the `ingest_sensor_data` Lambda in AWS Console.
+
+### Full list of .env variables
+
+| Variable | Default | What it does |
+|----------|---------|-------------|
+| `SECRET_KEY` | `change-me-in-production` | Flask session secret |
+| `FLASK_ENV` | `production` | Set to `development` for debug mode |
+| `AWS_API_BASE_URL` | — | Your API Gateway URL (no trailing slash) |
+| `AWS_REGION` | `ap-southeast-2` | AWS region |
+| `DEVICE_API_KEY` | — | Shared secret, sent as `X-DEVICE-KEY` header |
+| `DEVICE_ID` | `pi-001` | Partition key in DynamoDB |
+| `SENSOR_INTERVAL` | `5` | Seconds between readings |
+| `SENSOR_BACKEND` | `sense_emu` | Or `real_sense_hat` on a real Pi |
+| `ENABLE_BACKGROUND_COLLECTOR` | `false` | Usually leave off, use the uploader script instead |
+| `DISABLE_AUTH` | `0` | Skips login, only works when `FLASK_ENV=development` |
+| `CLOUD_TIMEOUT_SECONDS` | `12` | HTTP timeout for API calls |
+
+Lambda-side variables (set in AWS Console, not in `.env`):
+
+| Variable | Which Lambda |
+|----------|-------------|
+| `SENSOR_TABLE_NAME` | ingest + dashboard |
+| `SETTINGS_TABLE_NAME` | dashboard + settings |
+| `USERS_TABLE_NAME` | auth |
+| `DEVICE_API_KEY` | ingest |
+| `SNS_TOPIC_ARN` | dashboard |
+
+## Running the project (three terminals)
+
+You need three terminals open at the same time.
+
+**Terminal 1 — Emulator GUI**
 
 ```bash
-cd smart_env_monitor
-python3 device/emulator_uploader.py
-```
-
-**Terminal 3 — dashboard (no background collector)**
-
-```bash
+cd ~/Desktop/smart_env_monitor
 source .venv/bin/activate
-ENABLE_BACKGROUND_COLLECTOR=false python run.py
+sense_emu_gui
 ```
 
-Browser: http://127.0.0.1:5001
+If `sense_emu_gui` isn't found, try `python3 -m sense_emu.gui`.
 
-## Configuration (common)
+Once it opens, drag the sliders to reasonable values — Temperature around 25, Humidity around 55, Pressure around 1013. If you leave them at zero the uploader will reject the readings.
 
-| Variable | Default | Notes |
-|----------|---------|--------|
-| `DEVICE_API_KEY` | — | Shared secret; sent as `X-DEVICE-KEY` on POST `/ingest` |
-| `SNS_TOPIC_ARN` | — | Lambda env: email alerts on warning/critical |
-| `ENABLE_BACKGROUND_COLLECTOR` | `false` | Off = cloud-only ingest via device scripts |
-| `DEVICE_ID` | `pi-001` | DynamoDB partition key for device |
-| `DEMO_MODE` / `MOCK_UPLOAD_ENABLED` | `false` | Required for `device/mock_uploader.py` |
-| `LOCAL_FALLBACK_ON_AWS_ERROR` | `false` | Local analysis if `/data` fails |
-| `USE_SQLITE_CACHE` | `false` | Optional mirror to SQLite (`legacy/`) |
+**Terminal 2 — Uploader**
 
-See `.env.example` and `config/cloud_config.py` for URLs and timeouts.
+```bash
+cd ~/Desktop/smart_env_monitor
+source .venv/bin/activate
+PYTHONPATH=. python3 device/emulator_uploader.py
+```
 
-## API endpoints
+Working output looks like:
 
-### API Gateway (production)
+```
+[POST] source=sense_emu T=25.12°C H=54.80% P=1013.25 hPa → HTTP 201
+```
 
-| Route | Method | Lambda |
-|-------|--------|--------|
+If you see HTTP 403, your `DEVICE_API_KEY` doesn't match what's on the Lambda.
+
+**Terminal 3 — Dashboard**
+
+```bash
+cd ~/Desktop/smart_env_monitor
+source .venv/bin/activate
+PYTHONPATH=. python3 run.py
+```
+
+Go to http://127.0.0.1:5001, register a user, log in. The dashboard polls `/api/data` every few seconds and shows the latest readings from DynamoDB.
+
+## API routes
+
+API Gateway routes (Lambda backend):
+
+| Route | Method | Handler |
+|-------|--------|---------|
 | `/ingest` | POST | `ingest_sensor_data` |
 | `/data` | GET | `get_dashboard_data` |
 | `/settings` | GET, POST | `settings_handler` |
@@ -143,88 +181,108 @@ See `.env.example` and `config/cloud_config.py` for URLs and timeouts.
 | `/register` | POST | `auth_handler` |
 | `/health` | GET | `health_check` |
 
-### Flask proxy
+Flask proxies these under `/api/*` (e.g. `/api/data` calls `/data` on API Gateway).
 
-| Flask | AWS |
-|-------|-----|
-| `GET /api/data` | `GET /data` |
-| `POST /api/ingest` | `POST /ingest` |
-| `GET/POST /api/settings` | `GET/POST /settings` |
-| `POST /api/login`, `/api/register` | same |
-| `GET /api/health` | `GET /health` |
+## Analysis
 
-## Smart analysis (Lambda)
+`get_dashboard_data` Lambda does all the analysis — Flask doesn't compute any of this:
 
-Computed in `get_dashboard_data` using recent SensorData and DeviceSettings:
-
-- **Warnings** — latest reading vs thresholds
-- **Spike/drop** — last two temperature points vs `SPIKE_THRESHOLD`
-- **Trend** — recent window (stable / increasing / decreasing / volatile)
-- **Prediction** — simple linear estimate toward min/max thresholds
-
-## Dashboard
-
-- Status cards: cloud API, data freshness (`latest.timestamp`), sensor backend (`source` from cloud)
-- Warning level, list, and banner
-- Temperature intelligence panel (analysis from `/data`)
-- Historical temperature chart with threshold lines
-- Save thresholds to cloud; manual ingest form for testing
-
-Polling interval: `window.APP_CONFIG.dataRefreshMs` in `templates/index.html` (default 4s).
-
-## AWS deployment overview
-
-1. Create DynamoDB tables (keys as above).
-2. Deploy each Lambda from `lambda/` (include `shared/` in the zip root).
-3. Wire API Gateway HTTP routes to Lambda ARNs (`AWS_PROXY`, payload 2.0).
-4. Set Lambda env vars: `SENSOR_TABLE_NAME`, `SETTINGS_TABLE_NAME`, `USERS_TABLE_NAME`, etc.
-5. Point Flask `.env` at the execute-api base URL.
-
-See `infrastructure/AWS_HTTP_API_SETTINGS_ROUTES.md` for adding `/settings` routes to an existing API.
-
-## Troubleshooting
-
-| Symptom | Check |
-|---------|--------|
-| Blank dashboard | DevTools → `/api/data`; CloudWatch on `get_dashboard_data` |
-| Settings revert to defaults | DeviceSettings key must be `device_id`; redeploy settings Lambdas |
-| Stale “Sensor Backend” | Hard-refresh browser; confirm `latest.source` in `/data` JSON |
-| Ingest 4xx | CloudWatch on `ingest_sensor_data`; validate numeric fields |
-| POST /settings 404 | Missing API route — see `infrastructure/` |
-
-More detail: [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Screenshots (submission)
-
-Add figures here for your report, for example:
-
-1. Architecture diagram (device → API Gateway → Lambda → DynamoDB → Flask → browser)
-2. Dashboard overview with live readings
-3. Warnings active after lowering thresholds
-4. AWS Console: DynamoDB item with `source: sense_emu`
-5. Temperature intelligence and chart panels
+- **Warnings** — checks latest reading against the saved thresholds in DeviceSettings
+- **Spike/drop** — compares last two temperature readings (threshold default 3°C)
+- **Trend** — looks at recent readings to determine stable / rising / falling / volatile
+- **Prediction** — simple linear projection of when temp might cross a threshold
 
 ## SNS email alerts
 
-Set on **`get_dashboard_data` Lambda** (not Flask):
+Optional. If you set `SNS_TOPIC_ARN` on the `get_dashboard_data` Lambda, it will publish an email when warnings reach `warning` or `critical` level. There's a 10-minute cooldown per device so you don't get spammed. You can also create an `AlertState` DynamoDB table (PK: `alert_key`) to persist the cooldown across cold starts, but it works without it too.
 
-- `SNS_TOPIC_ARN` — subscribe your email to the topic in AWS Console
-- `ALERT_COOLDOWN_SECONDS` — default 600 (10 minutes per device/level)
-- `ALERT_STATE_TABLE_NAME` — optional DynamoDB table (partition key `alert_key`) for cooldown across Lambda cold starts
+## Troubleshooting
 
-## Future improvements
+**HTTP 403 / DEVICE_KEY_FORBIDDEN when uploading**
 
-- MQTT / AWS IoT Core ingest path
-- Per-user device ownership in DynamoDB
-- Automated tests against mocked API Gateway responses
-- Infrastructure as Code for the full stack (not only settings routes)
+Your `DEVICE_API_KEY` is wrong or missing. Check `.env`, make sure it matches what's set on the Lambda in AWS Console. Quick test:
 
-## Further reading
+```bash
+source .env
+curl -s -X POST "$AWS_API_BASE_URL/ingest" \
+  -H "Content-Type: application/json" \
+  -H "X-DEVICE-KEY: $DEVICE_API_KEY" \
+  -d '{"device_id":"pi-001","temperature":25,"humidity":55,"pressure":1013,"source":"curl_test"}'
+```
 
-- [docs/setup_guide.md](docs/setup_guide.md)
-- [docs/user_manual.md](docs/user_manual.md)
-- [docs/test_plan.md](docs/test_plan.md)
+**No .env file after cloning**
 
-## Assignment note
+That's expected — `.env` is in `.gitignore` because it has secrets. Create it from the example: `cp .env.example .env`
 
-Authoritative warnings and analysis come only from **`get_dashboard_data` Lambda** (`analysis_source: aws_lambda`). Flask does not import `lambda/shared` for brain logic.
+**Emulator GUI won't open**
+
+Usually means `sense-emu` isn't installed or there's no display. Try:
+
+```bash
+pip install sense-emu sense-hat
+export DISPLAY=:0
+sense_emu_gui
+```
+
+On a headless Pi you need VNC or a monitor connected.
+
+**Emulator returns garbage values (T=0, H=16172, P=0)**
+
+This happens when the emulator process is stale or the GUI didn't connect properly. Kill everything and start fresh:
+
+```bash
+pkill -f sense_emu
+pkill -f sense_emu_gui
+pkill -f emulator_uploader
+```
+
+Reopen the GUI, set the sliders to normal values, then restart the uploader.
+
+**ModuleNotFoundError: No module named 'cloud'**
+
+You're not in the project root, or `PYTHONPATH` isn't set. Always run from the project directory:
+
+```bash
+cd ~/Desktop/smart_env_monitor
+PYTHONPATH=. python3 device/emulator_uploader.py
+```
+
+**Dashboard shows no data / "Unknown" freshness**
+
+Either the uploader isn't getting 201s, or `AWS_API_BASE_URL` is wrong, or there's no data in DynamoDB for your device ID. Check directly:
+
+```bash
+source .env
+curl -s "$AWS_API_BASE_URL/data?device_id=pi-001" | python3 -m json.tool
+```
+
+If `sensor_data` is empty, the uploader isn't reaching DynamoDB. Check CloudWatch logs.
+
+**Settings don't save / 404 on POST /settings**
+
+The `/settings` route might not be deployed on your API Gateway. See `infrastructure/AWS_HTTP_API_SETTINGS_ROUTES.md` for the CloudFormation template to add it.
+
+## Testing checklist
+
+- [ ] Emulator opens and sliders work
+- [ ] Uploader prints HTTP 201
+- [ ] DynamoDB shows new `pi-001` entries
+- [ ] Dashboard shows live data
+- [ ] Can save threshold settings
+- [ ] Warnings appear when values exceed thresholds
+- [ ] Temperature thresholds work from -40 to 100
+- [ ] Pressure thresholds work from 800 to 1200
+- [ ] Manual ingest form works
+- [ ] `.env` is not in git
+
+## Deploying to AWS
+
+1. Create DynamoDB tables: `SensorData` (PK `device_id`, SK `timestamp`), `DeviceSettings` (PK `device_id`), `Users` (PK `username`)
+2. Zip each Lambda with `shared/` at the zip root and upload
+3. Create API Gateway HTTP API, add routes pointing to each Lambda (`AWS_PROXY` integration, payload format 2.0)
+4. Set Lambda env vars: `SENSOR_TABLE_NAME`, `SETTINGS_TABLE_NAME`, `USERS_TABLE_NAME`, `DEVICE_API_KEY`
+5. Put the API Gateway URL in your `.env` as `AWS_API_BASE_URL`
+
+## Note
+
+All warnings and analysis come from `get_dashboard_data` Lambda only. Flask doesn't do any local analysis — it just forwards what Lambda returns.

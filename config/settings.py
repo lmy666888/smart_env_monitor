@@ -1,9 +1,4 @@
-"""
-Centralised configuration (Assignment 2).
-
-Loads `.env` and environment variables. Used by Flask, sensor collector,
-cloud clients, and utilities.
-"""
+"""Centralised configuration — loads .env and env vars."""
 
 import os
 import platform
@@ -14,7 +9,6 @@ from dotenv import load_dotenv
 
 from config import cloud_config
 
-# Project root: parent of the `config` package directory.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
@@ -39,7 +33,7 @@ def _default_api_base() -> str:
 
 
 class Config:
-    """Base configuration."""
+    """App configuration."""
 
     FLASK_ENV = os.getenv("FLASK_ENV", "production").lower()
     SECRET_KEY = os.getenv("SECRET_KEY", "replace-this-secret-key")
@@ -53,16 +47,14 @@ class Config:
     HOST = os.getenv("HOST", "127.0.0.1")
     PORT = int(os.getenv("PORT", "5001"))
 
-    # SQLite: optional cache / local fallback only (not primary store).
     DB_NAME = os.getenv("DB_NAME", "sensor.db")
     DB_PATH = _resolve_db_path(DB_NAME)
     USE_SQLITE_CACHE = _to_bool(os.getenv("USE_SQLITE_CACHE"), False)
 
-    # Legacy local-auth env vars (deprecated when USE_AWS_BRAIN=true).
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
-    # Only honoured when FLASK_ENV=development (see config.auth_utils.is_auth_disabled).
+    # Only honoured when FLASK_ENV=development
     DISABLE_AUTH = _to_bool(os.getenv("DISABLE_AUTH"), False)
 
     USE_AWS_BRAIN = True
@@ -91,7 +83,7 @@ class Config:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
     LOG_THROTTLE_SECONDS = int(os.getenv("LOG_THROTTLE_SECONDS", "60"))
 
-    # --- AWS HTTP API (API Gateway) — see config/cloud_config.py ---
+    # AWS API Gateway endpoints
     AWS_API_BASE = _default_api_base()
     AWS_INGEST_URL = os.getenv("AWS_INGEST_URL", cloud_config.endpoint_url(cloud_config.INGEST_ENDPOINT))
     AWS_DATA_URL = os.getenv("AWS_DATA_URL", cloud_config.endpoint_url(cloud_config.DATA_ENDPOINT))
@@ -109,7 +101,6 @@ class Config:
 
     DEVICE_ID = os.getenv("DEVICE_ID", "pi-001")
 
-    # Fallback thresholds (match Lambda defaults) when settings cache is empty.
     CLOUD_DEFAULT_SETTINGS: Dict[str, float] = {
         "temp_min": 0,
         "temp_max": 40,
@@ -119,12 +110,10 @@ class Config:
         "pressure_max": 1030,
     }
 
-    # HTTP client defaults (alias cloud timeout unless overridden)
     HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", str(cloud_config.CLOUD_TIMEOUT_SECONDS)))
     HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
     HTTP_RETRY_BACKOFF = float(os.getenv("HTTP_RETRY_BACKOFF", "0.6"))
 
-    # Dashboard polling (browser → Flask `/api/data`, which calls AWS).
     DASHBOARD_CLOUD_TIMEOUT = cloud_config.DASHBOARD_CLOUD_TIMEOUT
 
     @classmethod

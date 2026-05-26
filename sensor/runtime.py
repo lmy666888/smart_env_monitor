@@ -1,4 +1,4 @@
-"""Process-wide runtime state for the sensor upload worker and dashboard."""
+"""Runtime state shared across upload worker and dashboard."""
 
 from __future__ import annotations
 

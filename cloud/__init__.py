@@ -1,4 +1,4 @@
-"""AWS API Gateway / HTTP integration layer."""
+"""Cloud client package."""
 
 from cloud.client import CloudAPIClient, CloudClientError
 

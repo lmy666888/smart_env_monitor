@@ -1,4 +1,4 @@
-"""Sense HAT / sense_emu reads with safe fallbacks; sources: real_sense_hat, sense_emu, mock."""
+"""Sense HAT / sense_emu sensor reads with fallbacks."""
 
 import logging
 import os
@@ -14,15 +14,14 @@ logger = logging.getLogger("smart_env_monitor.sensor")
 try:
     from sense_emu import SenseHat as _EmulatorSenseHat  # type: ignore
     EMULATOR_IMPORTED = True
-except Exception:  # pragma: no cover - import guard
+except Exception:
     _EmulatorSenseHat = None
     EMULATOR_IMPORTED = False
 
-# Real Sense HAT (only matters on a Raspberry Pi).
 try:
     from sense_hat import SenseHat as _RealSenseHat  # type: ignore
     REAL_HAT_IMPORTED = True
-except Exception:  # pragma: no cover - import guard
+except Exception:
     _RealSenseHat = None
     REAL_HAT_IMPORTED = False
 
@@ -35,14 +34,9 @@ SOURCE_UNKNOWN = "unknown"
 _sense_instance: Optional[Any] = None
 _active_source: str = SOURCE_UNKNOWN
 _init_attempted: bool = False
-# Source for the most recent `read_from_emulator()` (per-cycle; reflects mock fallback).
 _last_read_source: Optional[str] = None
-
-# {error_key: monotonic_seconds_of_last_log}
 _last_error_logged_at: Dict[str, float] = {}
 
-# Mock random-walk state. Starts near plausible "indoor" values so the
-# dashboard looks sensible immediately.
 _mock_state: Dict[str, float] = {
     "temperature": 23.0,
     "humidity": 55.0,
@@ -51,13 +45,6 @@ _mock_state: Dict[str, float] = {
 
 
 def _throttled_warning(key: str, message: str, *args: Any) -> None:
-    """
-    Log `message` at WARNING level, but at most once per
-    Config.LOG_THROTTLE_SECONDS for the same `key`.
-
-    In DEBUG mode the throttling is disabled so engineers can see every
-    failure during local development.
-    """
     if Config.DEBUG:
         logger.warning(message, *args)
         return
@@ -71,17 +58,7 @@ def _throttled_warning(key: str, message: str, *args: Any) -> None:
 
 
 def _init_sense_instance() -> Tuple[Optional[Any], str]:
-    """
-    Try to instantiate a Sense HAT (emulator or real). If both fail or the
-    user has set USE_MOCK_SENSOR=1, return (None, SOURCE_MOCK).
-
-    Priority order (per project requirements - Raspberry Pi + Sense HAT
-    Emulator as primary source):
-
-      1. sense_emu  (preferred, works on Pi desktop, macOS, Windows, Linux)
-      2. real Sense HAT  (used when running on a Pi without the emulator)
-      3. mock  (deterministic fallback so the dashboard never goes dark)
-    """
+    """Try sense_emu first, then real HAT, then mock."""
     if Config.USE_MOCK_SENSOR:
         logger.info("USE_MOCK_SENSOR=true; sensor source forced to mock.")
         return None, SOURCE_MOCK
@@ -113,7 +90,6 @@ def _init_sense_instance() -> Tuple[Optional[Any], str]:
 
 
 def get_sense_instance() -> Optional[Any]:
-    """Return the cached HAT instance, initialising once on first call."""
     global _sense_instance, _active_source, _init_attempted
     if _init_attempted:
         return _sense_instance
@@ -123,13 +99,6 @@ def get_sense_instance() -> Optional[Any]:
 
 
 def get_sensor_source_name(use_simulation_fallback: bool = False) -> str:
-    """
-    Return one of: "real_sense_hat", "sense_emu", "mock".
-
-    After at least one `read_from_emulator()` call, reflects whether that
-    reading came from the device or mock fallback. Before the first read,
-    falls back to the initialised backend label.
-    """
     if not _init_attempted:
         get_sense_instance()
     if _last_read_source is not None:
@@ -138,23 +107,21 @@ def get_sensor_source_name(use_simulation_fallback: bool = False) -> str:
 
 
 def is_sense_hat_available() -> bool:
-    """True if a real / emulated HAT instance was successfully created."""
     return get_sense_instance() is not None
 
 
 def validate_sensor_values(temperature: Any, humidity: Any, pressure: Any) -> bool:
-    """Coerce values to float and check they sit in a physically plausible range."""
     try:
         t = float(temperature)
         h = float(humidity)
         p = float(pressure)
     except (TypeError, ValueError):
         return False
-    if not -50 <= t <= 100:
+    if not -40 <= t <= 100:
         return False
     if not 0 <= h <= 100:
         return False
-    if not 300 <= p <= 1200:
+    if not 800 <= p <= 1200:
         return False
     return True
 
@@ -162,7 +129,6 @@ def validate_sensor_values(temperature: Any, humidity: Any, pressure: Any) -> bo
 def normalize_sensor_values(
     temperature: float, humidity: float, pressure: float
 ) -> Dict[str, float]:
-    """Round each value to 2 decimal places for storage / display."""
     return {
         "temperature": round(float(temperature), 2),
         "humidity": round(float(humidity), 2),
@@ -171,7 +137,6 @@ def normalize_sensor_values(
 
 
 def _safe_call(error_key: str, fn: Callable[[], float]) -> Optional[float]:
-    """Invoke `fn`, returning a float or None (with throttled warning) on error."""
     try:
         value = fn()
     except Exception as exc:
@@ -185,11 +150,6 @@ def _safe_call(error_key: str, fn: Callable[[], float]) -> Optional[float]:
 
 
 def _raw_temperature(sense: Any) -> Optional[float]:
-    """
-    Raw temperature from the device only (no Config fallbacks).
-
-    Order matches `_read_temperature` safety: pressure-derived T first.
-    """
     for method_name in (
         "get_temperature_from_pressure",
         "get_temperature_from_humidity",
@@ -235,18 +195,15 @@ def _raw_pressure(sense: Any) -> Optional[float]:
 
 
 def _mock_upload_allowed() -> bool:
-    """True only when explicit demo env flags permit mock sensor substitution."""
     return bool(getattr(Config, "DEMO_MODE", False)) and bool(
         getattr(Config, "MOCK_UPLOAD_ENABLED", False)
     )
 
 
 def _read_from_mock() -> Dict[str, float]:
-    """Return one mock reading using a smooth random walk."""
     _mock_state["temperature"] += random.uniform(-0.3, 0.3)
     _mock_state["humidity"] += random.uniform(-1.0, 1.0)
     _mock_state["pressure"] += random.uniform(-0.4, 0.4)
-    # Clamp to sensible indoor ranges.
     _mock_state["temperature"] = max(15.0, min(32.0, _mock_state["temperature"]))
     _mock_state["humidity"] = max(20.0, min(85.0, _mock_state["humidity"]))
     _mock_state["pressure"] = max(990.0, min(1030.0, _mock_state["pressure"]))
@@ -258,11 +215,6 @@ def _read_from_mock() -> Dict[str, float]:
 
 
 def read_from_emulator() -> Optional[Dict[str, float]]:
-    """
-    Each call tries the live Sense HAT / emulator again (cached instance,
-    fresh method calls). Invalid or incomplete raw device reads use mock
-    for this cycle only; the next call attempts the device again.
-    """
     global _last_read_source
 
     sense = get_sense_instance()
@@ -319,11 +271,10 @@ def read_from_emulator() -> Optional[Dict[str, float]]:
 
 
 def read_sensor_data(use_simulation_fallback: bool = False) -> Optional[Dict[str, float]]:
-    """Backwards-compatible alias preserved for the legacy Flask app."""
     return read_from_emulator()
 
 
-if __name__ == "__main__":  # pragma: no cover - manual smoke test
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     print("source:", get_sensor_source_name())
     for _ in range(3):

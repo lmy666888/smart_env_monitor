@@ -1,4 +1,4 @@
-"""HTTP client for API Gateway (ingest, data, settings, auth, health)."""
+"""HTTP client for AWS API Gateway endpoints."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ logger = logging.getLogger("smart_env_monitor.cloud.client")
 
 
 class CloudClientError(Exception):
-    """Raised when a cloud API call fails."""
 
     def __init__(
         self,
@@ -124,7 +123,6 @@ def _raise_settings_http_error(url: str, resp: requests.Response, http_verb: str
 
 
 def resolve_settings_urls(cfg: type) -> List[str]:
-    """Candidate URLs for /settings."""
     seen: set[str] = set()
     out: List[str] = []
 
@@ -143,7 +141,6 @@ def resolve_settings_urls(cfg: type) -> List[str]:
 
 
 class CloudAPIClient:
-    """Thin proxy over AWS API Gateway endpoints (authoritative AWS Brain)."""
 
     def __init__(self, config_class: type = Config):
         self._cfg = config_class
@@ -178,11 +175,6 @@ class CloudAPIClient:
         error_code: str = "AWS_API_ERROR",
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Perform HTTP request and return parsed JSON dict.
-
-        Raises CloudClientError on transport failure or non-2xx (unless body is JSON error).
-        """
         to = self._timeout_tuple() if timeout is None else (float(timeout), float(timeout))
         headers: Dict[str, str] = {}
         if json_body is not None:
@@ -239,7 +231,6 @@ class CloudAPIClient:
         device_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """GET /data — authoritative dashboard payload from Lambda."""
         params: Dict[str, Any] = {}
         if device_id:
             params["device_id"] = device_id
@@ -271,12 +262,10 @@ class CloudAPIClient:
         return data
 
     def post_sensor_reading(self, payload: Dict[str, Any]) -> bool:
-        """POST /ingest — returns True on 2xx (collector compatibility)."""
         result = self.post_ingest(payload)
         return bool(result.get("success", True))
 
     def post_ingest(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """POST /ingest — returns parsed AWS JSON body."""
         url = getattr(self._cfg, "AWS_INGEST_URL", cloud_config.endpoint_url(cloud_config.INGEST_ENDPOINT))
         if not url:
             logger.error("AWS_INGEST_URL is empty; cannot upload.")
@@ -300,7 +289,6 @@ class CloudAPIClient:
             }
 
     def get_settings(self, device_id: Optional[str] = None) -> Dict[str, Any]:
-        """GET /settings for a device (query ``device_id``, default from config)."""
         urls = resolve_settings_urls(self._cfg)
         if not urls:
             raise CloudClientError(
@@ -347,7 +335,6 @@ class CloudAPIClient:
         raise CloudClientError("GET /settings failed", error_code="SETTINGS_UNKNOWN_ERROR")
 
     def post_settings(self, payload: Dict[str, Any], device_id: Optional[str] = None) -> Dict[str, Any]:
-        """POST /settings for a device (includes ``device_id`` in JSON body)."""
         body = dict(payload)
         body.setdefault("device_id", device_id or getattr(self._cfg, "DEVICE_ID", "pi-001"))
         urls = resolve_settings_urls(self._cfg)
@@ -392,12 +379,10 @@ class CloudAPIClient:
         raise CloudClientError("POST /settings failed", error_code="SETTINGS_UNKNOWN_ERROR")
 
     def post_login(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """POST /login — DynamoDB Users table via auth_handler Lambda."""
         url = getattr(self._cfg, "AWS_LOGIN_URL", cloud_config.endpoint_url(cloud_config.LOGIN_ENDPOINT))
         return self.request_json("POST", url, json_body=payload, error_code="LOGIN_HTTP_ERROR")
 
     def post_register(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """POST /register."""
         url = getattr(
             self._cfg,
             "AWS_REGISTER_URL",
@@ -406,7 +391,6 @@ class CloudAPIClient:
         return self.request_json("POST", url, json_body=payload, error_code="REGISTER_HTTP_ERROR")
 
     def fetch_health(self, timeout: float = 5.0) -> Dict[str, Any]:
-        """GET /health."""
         url = getattr(self._cfg, "AWS_HEALTH_URL", cloud_config.endpoint_url(cloud_config.HEALTH_ENDPOINT))
         return self.request_json("GET", url, timeout=timeout, error_code="HEALTH_HTTP_ERROR")
 

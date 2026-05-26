@@ -1,10 +1,4 @@
-"""
-Local fallback dashboard assembly (deprecated for production).
-
-Used only when ``USE_AWS_BRAIN`` is false or ``LOCAL_FALLBACK_ON_AWS_ERROR`` is
-enabled and API Gateway is unreachable. Analysis and warnings here duplicate
-Lambda logic — AWS ``get_dashboard_data`` is authoritative in production.
-"""
+"""Local fallback dashboard — deprecated; production uses Lambda exclusively."""
 
 from __future__ import annotations
 
@@ -52,11 +46,7 @@ def build_local_fallback_payload(
     settings_dict: Optional[Dict[str, Any]] = None,
     error_message: str = "AWS API unavailable.",
 ) -> Dict[str, Any]:
-    """
-    Build dashboard JSON using local analysis modules (Flask Brain fallback).
-
-    Optionally reads SQLite cache when ``USE_SQLITE_CACHE`` is enabled.
-    """
+    """Build dashboard JSON using local analysis (fallback only)."""
     cfg_class = app.config.get("CONFIG_CLASS", get_config())
     trend_window = int(app.config.get("TREND_WINDOW", getattr(cfg_class, "TREND_WINDOW", 5)))
     sensor_interval = int(app.config.get("SENSOR_INTERVAL", getattr(cfg_class, "SENSOR_INTERVAL", 5)))

@@ -1,1 +1,1 @@
-"""Shared Lambda helpers (DynamoDB settings, analysis, warnings)."""
+"""Shared Lambda utilities."""

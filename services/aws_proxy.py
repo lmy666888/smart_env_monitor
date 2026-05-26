@@ -1,4 +1,4 @@
-"""Proxy GET /data from API Gateway — no local brain recompute (Lambda only)."""
+"""Proxy GET /data from API Gateway — Lambda is the sole brain."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ def _normalise_sensor_list(raw: Any) -> List[Dict[str, Any]]:
 
 
 def _ensure_chart_fields(payload: Dict[str, Any], sensor_list: List[Dict[str, Any]]) -> None:
-    """Chart series from sensor_data only (UI presentation, not analysis)."""
     if payload.get("chart_labels") and payload.get("chart_values"):
         return
     chron = list(reversed(sensor_list[-50:]))
@@ -78,7 +77,7 @@ def build_aws_dashboard_response(
     cloud_client: CloudAPIClient,
     device_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Fetch GET /data from Lambda and pass through (BFF only)."""
+    """Fetch GET /data from Lambda and pass through."""
     cfg_class = app.config.get("CONFIG_CLASS")
 
     cloud_raw = cloud_client.fetch_dashboard_data(device_id=device_id)

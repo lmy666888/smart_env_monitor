@@ -1,11 +1,4 @@
-"""
-Legacy entry point — delegates to the Assignment 2 application factory.
-
-Run:
-    python legacy/app.py
-    python -m legacy.app
-    flask --app legacy.app run
-"""
+"""Legacy entry point — delegates to create_app()."""
 
 import sys
 from pathlib import Path

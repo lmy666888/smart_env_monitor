@@ -1,9 +1,4 @@
-"""
-SNS email alerts for threshold warnings (Lambda only).
-
-Set SNS_TOPIC_ARN on get_dashboard_data. Optional AlertState DynamoDB table
-(partition key alert_key) for cooldown across warm/cold starts.
-"""
+"""SNS email alerts with cooldown for threshold warnings."""
 
 from __future__ import annotations
 
@@ -22,7 +17,6 @@ ALERT_STATE_TABLE_NAME = os.environ.get("ALERT_STATE_TABLE_NAME", "").strip()
 
 _sns_client: Any = None
 _dynamodb = boto3.resource("dynamodb")
-# Fallback when no DynamoDB table (same warm container only).
 _memory_cooldown: Dict[str, str] = {}
 
 
@@ -45,7 +39,6 @@ def _parse_iso(ts: str) -> Optional[datetime]:
 
 
 def _in_cooldown(alert_key: str) -> bool:
-    """True if we should skip sending (within cooldown window)."""
     if ALERT_STATE_TABLE_NAME:
         try:
             table = _dynamodb.Table(ALERT_STATE_TABLE_NAME)
@@ -114,9 +107,6 @@ def maybe_send_warning_alert(
     warnings: List[str],
     warning_status: Dict[str, Any],
 ) -> None:
-    """
-    Publish SNS email when level is warning or critical. Never raises.
-    """
     if not SNS_TOPIC_ARN:
         return
     if not latest or not warnings:

@@ -2,7 +2,6 @@ let chart = null;
 let isSettingsFormDirty = false;
 let lastSuccessfulPayload = null;
 let firstLoadComplete = false;
-/** After Save to cloud, ignore stale settings from /api/data polls briefly. */
 let settingsPinnedUntil = 0;
 
 function formatDisplayTime(value) {
@@ -44,7 +43,6 @@ function updateOverallLevel(level) {
     el.classList.add("status-pill", level === "critical" ? "critical" : level || "normal");
 }
 
-/** Cloud freshness thresholds (seconds) — based on AWS ``data.latest.timestamp`` only. */
 const FRESHNESS_LIVE_SECONDS = 15;
 const FRESHNESS_RECENT_SECONDS = 60;
 
@@ -55,7 +53,6 @@ function formatLastUpdateAge(seconds) {
     return `${m}m ago`;
 }
 
-/** Relative time for last cloud ingest (``data.latest.timestamp``). */
 function formatRelativeDeviceUpload(latestTimestamp) {
     if (latestTimestamp == null || String(latestTimestamp).trim() === "") {
         return null;
@@ -90,10 +87,6 @@ function updateLastDeviceUpload(data) {
     el.textContent = relative ?? "—";
 }
 
-/**
- * Cloud Data Freshness — single source of truth: ``data.latest.timestamp`` from GET /data.
- * Does not use local collector, Flask runtime upload times, or legacy write fields.
- */
 function updateCloudFreshness(data) {
     const dynamoEl = document.getElementById("dynamoStatus");
     if (!dynamoEl) return;
@@ -264,7 +257,6 @@ function formatSensorSourceValue(raw) {
     return labels[key] || String(raw);
 }
 
-/** Sensor Backend label from cloud payload (not local Flask reader). */
 function resolveSensorBackendLabel(data) {
     if (!data || typeof data !== "object") return "--";
 
@@ -358,10 +350,6 @@ function updateRealtimeReadings(latest) {
     timestampEl.textContent = latest.timestamp || "--";
 }
 
-/**
- * AWS GET /data schema is authoritative for dashboard warnings (data.warnings, data.warning_status).
- * Legacy Flask fields (warning_info, warning_message, local_warning) are deprecated fallbacks only.
- */
 function extractCloudWarnings(data) {
     if (!data || typeof data !== "object") return [];
 
@@ -379,7 +367,7 @@ function extractCloudWarnings(data) {
             return normalizeWarningStrings(status.messages);
         }
 
-        // Deprecated local/Flask fields — kept for backward compatibility with older payloads.
+        // Legacy fallback fields
         const legacy =
             data.warning_info ||
             data.warning_message ||
@@ -416,7 +404,6 @@ function escapeHtml(text) {
         .replace(/'/g, "&#39;");
 }
 
-/** Authoritative AWS ``data.warnings`` only (same array as GET /data; not legacy Flask fields). */
 function getAuthoritativeWarnings(data) {
     if (!data || typeof data !== "object") return [];
     try {
@@ -470,10 +457,6 @@ function isBrainFetchFailed(data) {
     return data.success === false && !data.fallback_used;
 }
 
-/**
- * Brain source card: lineage on #brainSource; warning details on #brainWarningInfo.
- * Uses the same warnings array as the Warnings card (extractCloudWarnings / data.warnings).
- */
 function updateBrainSourceDisplay(data, warnings) {
     const brainEl = document.getElementById("brainSource");
     const brainWarningEl = document.getElementById("brainWarningInfo");
@@ -723,6 +706,15 @@ function validateSettingsPayload(payload) {
     const pressureMin = Number(payload.pressure_min);
     const pressureMax = Number(payload.pressure_max);
 
+    if (tempMin < -40 || tempMax > 100) {
+        throw new Error("Temperature thresholds must be between -40 and 100 °C.");
+    }
+    if (humMin < 0 || humMax > 100) {
+        throw new Error("Humidity thresholds must be between 0 and 100 %.");
+    }
+    if (pressureMin < 800 || pressureMax > 1200) {
+        throw new Error("Pressure thresholds must be between 800 and 1200 hPa.");
+    }
     if (tempMin >= tempMax) {
         throw new Error("Temperature minimum must be less than maximum.");
     }

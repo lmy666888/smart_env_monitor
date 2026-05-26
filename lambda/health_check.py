@@ -1,9 +1,4 @@
-"""
-Lambda: GET /health
-
-Simple liveness probe for the API. Returns a 200 OK with a small JSON payload
-so monitors / curl checks can verify that the function is reachable.
-"""
+"""Lambda GET /health — liveness probe."""
 
 import json
 import logging
