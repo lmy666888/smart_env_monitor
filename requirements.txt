@@ -13,4 +13,4 @@ sense-hat==2.6.0
 
 flask-cors==5.0.0
 
-numpy==2.1.1
+numpy==1.26.4
